@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#3d5af1">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<title>Chute Libre — Trap Platformer</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app">
+  <header id="topbar">
+    <button id="menuBtn" class="iconBtn" aria-label="Menu">☰</button>
+    <div id="titleBlock">
+      <span id="levelName">—</span>
+      <span id="levelDiff">—</span>
+    </div>
+    <button id="installBtn" class="iconBtn" aria-label="Installer">⬇</button>
+  </header>
+
+  <main id="stage">
+    <div id="canvasWrap">
+      <canvas id="game" width="800" height="450"></canvas>
+      <div id="overlay">
+        <div id="overlayCard">
+          <h2 id="overlayTitle">—</h2>
+          <p id="overlayText">—</p>
+          <button id="overlayBtn">Rejouer</button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer id="controlsBar">
+    <div class="dpad">
+      <button id="btnLeft" class="ctrl">◀</button>
+      <button id="btnRight" class="ctrl">▶</button>
+    </div>
+    <button id="btnJump" class="ctrl ctrlJump">⤒</button>
+  </footer>
+</div>
+
+<div id="drawerBackdrop"></div>
+<aside id="drawer">
+  <button id="closeDrawer" class="iconBtn">✕</button>
+  <h3>Niveaux</h3>
+  <div id="levelList"></div>
+  <button id="btnImportLevel" class="drawerBtn">Importer un niveau (JSON)</button>
+  <input id="fileImportLevel" type="file" accept="application/json" hidden>
+  <h3>Statistiques</h3>
+  <div id="statsBlock"></div>
+  <h3>Pièges découverts</h3>
+  <div id="trapLog"></div>
+  <h3>Commandes</h3>
+  <p class="hint">Flèches / Q-D : se déplacer · Espace / Haut : sauter · R : recommencer<br>Sur mobile : boutons tactiles en bas de l'écran.</p>
+</aside>
+
+<script src="js/levels.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/render.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
