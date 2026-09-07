@@ -158,6 +158,16 @@ if("serviceWorker" in navigator){
   window.addEventListener("load", () => {
     navigator.serviceWorker.register("service-worker.js").catch(() => {});
   });
+  /* Dès qu'une nouvelle version du service worker prend le relais (après
+     un déploiement), on recharge une fois automatiquement — sinon la page
+     ouverte continue d'utiliser les anciens fichiers déjà en mémoire tant
+     qu'on ne rafraîchit pas manuellement. */
+  let swRefreshing = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if(swRefreshing) return;
+    swRefreshing = true;
+    window.location.reload();
+  });
 }
 let deferredPrompt = null;
 const installBtn = document.getElementById("installBtn");
