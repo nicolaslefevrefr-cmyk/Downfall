@@ -17,7 +17,10 @@
    ========================================================================= */
 
 const W = 800, H = 450;
-const GRAVITY = 2200, MOVE_SPEED = 240, JUMP_VELOCITY = -620, MAX_FALL = 900;
+const DEFAULT_GRAVITY = 2200;
+const MOVE_SPEED = 240, JUMP_VELOCITY = -620, MAX_FALL = 900;
+let currentGravity = DEFAULT_GRAVITY;
+let walkPhase = 0;
 const STEP_UP = 14;
 
 const DESC = {
@@ -132,7 +135,7 @@ const Kits = {
 
 const LEVELS_SOURCE = [
   {
-    id:"l1", name:"Premier saut", difficulty:1,
+    id:"l1", name:"Premier saut", difficulty:1, gravity:DEFAULT_GRAVITY,
     playerStart:{x:40,y:372},
     exit:{x:730,y:350,w:40,h:60},
     objects:[
@@ -144,7 +147,7 @@ const LEVELS_SOURCE = [
     ],
   },
   {
-    id:"l2", name:"Effet domino", difficulty:3,
+    id:"l2", name:"Effet domino", difficulty:3, gravity:DEFAULT_GRAVITY,
     playerStart:{x:40,y:372},
     exit:{x:730,y:350,w:40,h:60},
     objects:[
@@ -159,7 +162,7 @@ const LEVELS_SOURCE = [
     ],
   },
   {
-    id:"l3", name:"Fausse sortie", difficulty:4,
+    id:"l3", name:"Fausse sortie", difficulty:4, gravity:DEFAULT_GRAVITY,
     playerStart:{x:40,y:372},
     exit:{x:730,y:350,w:40,h:60},
     /* Le vrai chemin traverse l'écart (260->350) en un seul saut direct.
@@ -177,7 +180,7 @@ const LEVELS_SOURCE = [
     ],
   },
   {
-    id:"l4", name:"Le plafond menteur", difficulty:5,
+    id:"l4", name:"Le plafond menteur", difficulty:5, gravity:DEFAULT_GRAVITY,
     playerStart:{x:40,y:372},
     exit:{x:730,y:350,w:40,h:60},
     /* Le saut "évident" au bord de groundA déclenche un plafond qui claque
@@ -237,7 +240,11 @@ for(const lv of LEVELS_SOURCE) if(!progress[lv.id]) progress[lv.id] = {attempts:
    la même façon une fois chargé ici, dans le vrai jeu. Purement en mémoire
    (pas persisté), pour l'intégration Firebase à venir plus tard. */
 let IMPORTED_LEVELS = [];
-function allLevels(){ return LEVELS_SOURCE.concat(IMPORTED_LEVELS); }
+/* Niveaux chargés automatiquement depuis Firebase au démarrage (ceux dont
+   le statut est "FINAL" — les niveaux "PRODUCTION" ne sont jamais proposés
+   ici, seulement visibles/testables depuis l'éditeur). */
+let FIREBASE_LEVELS = [];
+function allLevels(){ return LEVELS_SOURCE.concat(IMPORTED_LEVELS).concat(FIREBASE_LEVELS); }
 function ensureLevelProgress(id){
   if(!progress[id]) progress[id] = {attempts:0, discovered:[], completed:false};
 }

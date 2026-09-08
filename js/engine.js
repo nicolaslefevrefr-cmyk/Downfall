@@ -76,21 +76,27 @@ function applyActionStart(obj, action){
          mais sans jamais exécuter son action ni sa cascade. */
       return;
     case "MOVE":
-      /* translation à vitesse maximale donnée, avec accélération optionnelle
-         (0/omise = vitesse atteinte instantanément), pendant action.duration
-         ms (omise = indéfiniment). Porte le joueur s'il se tient dessus. */
-      obj.state = "moving";
+      /* Chaque MOVE ne pilote QUE l'axe correspondant à sa direction
+         (gauche/droite => X, haut/bas => Y), sans toucher à l'autre axe —
+         deux MOVE sur des axes différents s'additionnent donc en diagonale
+         au lieu de s'annuler. Un second MOVE sur le MÊME axe remplace
+         proprement le premier (comportement attendu). */
       {
         const speed = action.speed != null ? action.speed : 100;
         const dir = action.direction || "right";
-        obj.moveTargetVx = dir === "left" ? -speed : dir === "right" ? speed : 0;
-        obj.moveTargetVy = dir === "up" ? -speed : dir === "down" ? speed : 0;
-        obj.moveAccel = action.acceleration || 0;
-        if(!obj.moveAccel){ obj.moveVx = obj.moveTargetVx; obj.moveVy = obj.moveTargetVy; }
-        else { obj.moveVx = obj.moveVx || 0; obj.moveVy = obj.moveVy || 0; }
-      }
-      if(action.duration){
-        scheduleTimer(action.duration, () => { obj.state = "idle"; obj.moveVx = 0; obj.moveVy = 0; });
+        const axis = (dir === "left" || dir === "right") ? "x" : "y";
+        const target = axis === "x" ? (dir === "left" ? -speed : speed) : (dir === "up" ? -speed : speed);
+        const accel = action.acceleration || 0;
+        const prevV = axis === "x" ? (obj.moveX ? obj.moveX.v : 0) : (obj.moveY ? obj.moveY.v : 0);
+        const mover = { target, accel, v: accel ? prevV : target };
+        if(axis === "x") obj.moveX = mover; else obj.moveY = mover;
+        obj.state = "moving";
+        if(action.duration){
+          scheduleTimer(action.duration, () => {
+            if(axis === "x") obj.moveX = null; else obj.moveY = null;
+            if(!obj.moveX && !obj.moveY) obj.state = "idle";
+          });
+        }
       }
       fireCascade(obj);
       break;
@@ -114,6 +120,37 @@ function startFalling(obj){
   obj.state = "falling"; obj.solid = false; obj.vy = 0;
   fireCascade(obj);
 }
+/* Actions sur les cibles spéciales SCENE et PLAYER (en plus des objets du
+   niveau). Ni la scène ni le joueur ne sont des objets, donc séparées de
+   applyActionStart. */
+function applySceneAction(action){
+  if(action.type === "SET_GRAVITY"){
+    currentGravity = action.value != null ? action.value : DEFAULT_GRAVITY;
+  }
+}
+function applyPlayerAction(action){
+  if(action.type === "CHANGE_WIDTH"){
+    const newW = action.value != null ? action.value : 26;
+    player.x += (player.w - newW) / 2; // recentre horizontalement
+    player.w = newW;
+  } else if(action.type === "CHANGE_HEIGHT"){
+    const newH = action.value != null ? action.value : 38;
+    player.y += (player.h - newH); // garde les pieds au même endroit
+    player.h = newH;
+  } else if(action.type === "MOVE"){
+    const speed = action.speed != null ? action.speed : 100;
+    const dir = action.direction || "right";
+    const axis = (dir === "left" || dir === "right") ? "x" : "y";
+    const target = axis === "x" ? (dir === "left" ? -speed : speed) : (dir === "up" ? -speed : speed);
+    const accel = action.acceleration || 0;
+    const prevV = axis === "x" ? (player.moveX ? player.moveX.v : 0) : (player.moveY ? player.moveY.v : 0);
+    const mover = { target, accel, v: accel ? prevV : target };
+    if(axis === "x") player.moveX = mover; else player.moveY = mover;
+    if(action.duration){
+      scheduleTimer(action.duration, () => { if(axis === "x") player.moveX = null; else player.moveY = null; });
+    }
+  }
+}
 function fireCascade(obj){
   /* Chaque lien de cascade s'applique indépendamment, même si la cible a
      déjà reçu une action d'un autre lien (ex : un premier lien qui la fait
@@ -124,6 +161,8 @@ function fireCascade(obj){
   if(!def || !def.trap || !def.trap.then) return;
   for(const link of def.trap.then){
     scheduleTimer(link.delay || 0, () => {
+      if(link.target === "SCENE"){ applySceneAction(link.action); return; }
+      if(link.target === "PLAYER"){ applyPlayerAction(link.action); return; }
       const target = objects.find(o => o.id === link.target);
       if(target){
         target.triggered = true;
@@ -177,9 +216,11 @@ function buildLevel(lv){
   player = {
     x: lv.playerStart.x, y: lv.playerStart.y, w:26, h:38,
     vx:0, vy:0, grounded:false, groundedOn:null, prevGroundedOn:null, justLandedOn:null,
-    justJumped:false, lastBump:null, lastGroundY:null, prevBox:null, facing:1,
+    justJumped:false, lastBump:null, lastGroundY:null, prevBox:null, moveX:null, moveY:null, facing:1,
   };
   timers = []; now = 0; mode = "playing"; lastCause = null;
+  currentGravity = lv.gravity != null ? lv.gravity : DEFAULT_GRAVITY;
+  walkPhase = 0;
   onLevelBuilt();
 }
 
@@ -264,15 +305,23 @@ function update(dt){
     if(o.state === "falling"){
       o.y += o.fallSpeed * dt;
       if(o.y > H + 100){ o.visible = false; o.dead = true; }
-    } else if(o.state === "moving"){
-      if(o.moveAccel){
-        const maxStep = o.moveAccel * dt;
-        o.moveVx = approach(o.moveVx||0, o.moveTargetVx||0, maxStep);
-        o.moveVy = approach(o.moveVy||0, o.moveTargetVy||0, maxStep);
+    }
+    /* moveX et moveY sont deux "moteurs" indépendants (un par axe) : une
+       translation horizontale et une translation verticale peuvent tourner
+       EN PARALLÈLE sur le même objet, au lieu de s'écraser l'une l'autre. */
+    if(o.moveX || o.moveY){
+      let dx = 0, dy = 0;
+      if(o.moveX){
+        o.moveX.v = o.moveX.accel ? approach(o.moveX.v, o.moveX.target, o.moveX.accel*dt) : o.moveX.target;
+        dx = o.moveX.v * dt;
       }
-      const dx = (o.moveVx||0) * dt, dy = (o.moveVy||0) * dt;
-      o.x += dx; o.y += dy; o._lastDX = dx; o._lastDY = dy;
-    } else if(o.state === "rotating"){
+      if(o.moveY){
+        o.moveY.v = o.moveY.accel ? approach(o.moveY.v, o.moveY.target, o.moveY.accel*dt) : o.moveY.target;
+        dy = o.moveY.v * dt;
+      }
+      o.x += dx; o.y += dy; o._lastDX += dx; o._lastDY += dy;
+    }
+    if(o.state === "rotating"){
       o.angle = (o.angle||0) + (o.rotateSpeed||0) * dt;
     }
   }
@@ -280,6 +329,7 @@ function update(dt){
   player.vx = (input.right ? 1 : 0) - (input.left ? 1 : 0);
   player.vx *= MOVE_SPEED;
   if(player.vx > 0) player.facing = 1; else if(player.vx < 0) player.facing = -1;
+  walkPhase += Math.abs(player.vx) * dt * 0.15;
 
   player.justJumped = false;
   if(input.jumpQueued && player.grounded){
@@ -287,6 +337,18 @@ function update(dt){
     player.justJumped = true;
   }
   input.jumpQueued = false;
+
+  /* Impulsion externe (action MOVE ciblant PLAYER, cf. applyPlayerAction) :
+     s'ajoute au déplacement piloté par les touches, sans jamais l'écraser —
+     même logique à deux axes indépendants que pour les objets. */
+  if(player.moveX){
+    player.moveX.v = player.moveX.accel ? approach(player.moveX.v, player.moveX.target, player.moveX.accel*dt) : player.moveX.target;
+    player.vx += player.moveX.v;
+  }
+  if(player.moveY){
+    player.moveY.v = player.moveY.accel ? approach(player.moveY.v, player.moveY.target, player.moveY.accel*dt) : player.moveY.target;
+    player.vy += player.moveY.v;
+  }
 
   /* Sous-pas physiques : à 240px/s et 60 img/s, une image déplace le joueur
      de 4px, et son corps fait 26px de large — l'écart réel à traverser sans
@@ -298,7 +360,7 @@ function update(dt){
   const SUBSTEPS = 4;
   const subDt = dt / SUBSTEPS;
   for(let s = 0; s < SUBSTEPS; s++){
-    player.vy += GRAVITY * subDt;
+    player.vy += currentGravity * subDt;
     if(player.vy > MAX_FALL) player.vy = MAX_FALL;
     resolveCollisions(subDt);
   }

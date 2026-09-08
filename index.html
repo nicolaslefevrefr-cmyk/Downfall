@@ -18,6 +18,7 @@
       <span id="levelName">—</span>
       <span id="levelDiff">—</span>
     </div>
+    <button id="btnSettings" class="iconBtn" aria-label="Paramètres">⚙️</button>
     <button id="installBtn" class="iconBtn" aria-label="Installer">⬇</button>
   </header>
 
@@ -58,6 +59,29 @@
   <p class="hint">Flèches / Q-D : se déplacer · Espace / Haut : sauter · R : recommencer<br>Sur mobile : boutons tactiles en bas de l'écran.</p>
 </aside>
 
+<div id="fbBackdrop" class="modalBackdrop"></div>
+<div id="fbModal" class="modal">
+  <div class="modalHeader">
+    <h3 style="margin:0;font-size:14px;">☁ Firebase</h3>
+    <button id="fbModalClose" class="iconBtn">✕</button>
+  </div>
+  <div class="modalPanel">
+    <p class="hint">Au démarrage, le jeu charge automatiquement les niveaux marqués <b>FINAL</b> sur Firebase, en plus des niveaux intégrés. Ces réglages sont enregistrés dans ce navigateur ; <code>js/firebase-config.js</code> fournit les valeurs par défaut du site.</p>
+    <div class="field">
+      <label>URL de la base de données (databaseURL)</label>
+      <input id="fbDatabaseUrl" type="text" placeholder="https://xxxx-default-rtdb.firebaseio.com">
+    </div>
+    <div class="field">
+      <label>Jeton d'authentification (optionnel)</label>
+      <input id="fbAuthToken" type="text" placeholder="laisser vide si accès public">
+    </div>
+    <button id="fbSaveSettingsBtn" class="drawerBtn">Enregistrer et recharger les niveaux</button>
+    <div id="fbSettingsStatus" class="fbStatusMsg"></div>
+  </div>
+</div>
+
+<script src="js/firebase-config.js"></script>
+<script src="js/firebase-rest.js"></script>
 <script src="js/levels.js"></script>
 <script src="js/engine.js"></script>
 <script src="js/render.js"></script>

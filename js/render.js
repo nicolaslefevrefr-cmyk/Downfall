@@ -79,6 +79,45 @@ function drawStoneBrick(x,y,w,h){
   ctx2d.restore();
 }
 
+/* Porte : un cadre arrondi + un panneau intérieur + une barre + une
+   poignée, plutôt qu'un simple rectangle bleu. Utilisée à la fois pour la
+   sortie et pour un objet de type "door" (porte-leurre, etc.). */
+function drawDoorShape(x,y,w,h, mainColor, panelColor, knobColor){
+  ctx2d.save();
+  const r = Math.min(w,h)*0.18;
+  ctx2d.fillStyle = mainColor;
+  ctx2d.beginPath();
+  ctx2d.moveTo(x, y+h);
+  ctx2d.lineTo(x, y+r);
+  ctx2d.quadraticCurveTo(x, y, x+r, y);
+  ctx2d.lineTo(x+w-r, y);
+  ctx2d.quadraticCurveTo(x+w, y, x+w, y+r);
+  ctx2d.lineTo(x+w, y+h);
+  ctx2d.closePath();
+  ctx2d.fill();
+
+  const pad = w*0.14;
+  const px=x+pad, py=y+pad*1.3, pw=w-pad*2, ph=h-pad*2.1;
+  const pr = pw*0.22;
+  ctx2d.fillStyle = panelColor;
+  ctx2d.beginPath();
+  ctx2d.moveTo(px, py+ph);
+  ctx2d.lineTo(px, py+pr);
+  ctx2d.quadraticCurveTo(px, py, px+pr, py);
+  ctx2d.lineTo(px+pw-pr, py);
+  ctx2d.quadraticCurveTo(px+pw, py, px+pw, py+pr);
+  ctx2d.lineTo(px+pw, py+ph);
+  ctx2d.closePath();
+  ctx2d.fill();
+
+  ctx2d.strokeStyle = mainColor; ctx2d.lineWidth = Math.max(1.5, w*0.05);
+  ctx2d.beginPath(); ctx2d.moveTo(px, py+ph*0.55); ctx2d.lineTo(px+pw, py+ph*0.55); ctx2d.stroke();
+
+  ctx2d.fillStyle = knobColor;
+  ctx2d.beginPath(); ctx2d.arc(x+w-pad*1.3, y+h*0.55, Math.max(2, w*0.07), 0, Math.PI*2); ctx2d.fill();
+  ctx2d.restore();
+}
+
 function drawObject(o){
   if(o.visible === false) return;
   const shakeOff = (o.state === "shaking") ? Math.sin(now*0.06)*2 : 0;
@@ -112,10 +151,7 @@ function drawObject(o){
       }
       break;
     case "door":
-      ctx2d.fillStyle = "#3d5af1";
-      drawRounded(o.x,o.y,o.w,o.h,8); ctx2d.fill();
-      ctx2d.strokeStyle="#2a3fc0"; ctx2d.lineWidth=2; ctx2d.stroke();
-      ctx2d.fillStyle="#eef0ff"; ctx2d.beginPath(); ctx2d.arc(o.x+o.w-9,o.y+o.h/2,3,0,7); ctx2d.fill();
+      drawDoorShape(o.x,o.y,o.w,o.h, "#3d5af1", "#eef0ff", "#1f2d8a");
       break;
     case "button":
       drawStoneBrick(o.x,o.y,o.w,o.h);
@@ -141,31 +177,82 @@ function drawObject(o){
 
 function drawExit(){
   const e = level.exit;
-  ctx2d.fillStyle = mode==="won" ? "#2fb380" : "#59c98f";
-  drawRounded(e.x,e.y,e.w,e.h,8); ctx2d.fill();
-  ctx2d.fillStyle="#eafff3"; ctx2d.font="18px sans-serif"; ctx2d.textAlign="center";
-  ctx2d.fillText("🚪", e.x+e.w/2, e.y+e.h/2+7);
+  const c = mode==="won" ? "#2fb380" : "#3a9c6c";
+  drawDoorShape(e.x,e.y,e.w,e.h, c, "#eafff3", "#164a33");
 }
 
+/* Personnage joueur : un bonhomme-bâton (tête ronde, tronc, bras, jambes)
+   qui s'anime à la marche et prend une pose différente en l'air — identique
+   au mode test de l'éditeur. (walkPhase vit dans engine.js, mis à jour à
+   chaque frame avec la vitesse du joueur.) */
+function drawStickFigure(w, h, grounded, phase, dead, speedFrac){
+  const x = -w/2, y = -h/2;
+  const headR = 5;
+  const midX = x + w/2;
+  const headCY = y + headR + 1;
+  const shoulderY = y + headR*2 + 4;
+  const hipY = y + h*0.58;
+  const footY = y + h;
+  const amp = grounded ? (speedFrac!=null?speedFrac:1) : 1;
+  const swing = grounded ? Math.sin(phase)*amp : 0;
+  const legOffset = grounded ? swing*8 : 0;
+  const armOffset = grounded ? -swing*7 : 0;
+
+  ctx2d.strokeStyle = dead ? "#b8bccb" : "#2a2d3d";
+  ctx2d.lineWidth = 2.4; ctx2d.lineCap = "round"; ctx2d.lineJoin = "round";
+
+  ctx2d.beginPath(); ctx2d.arc(midX, headCY, headR, 0, Math.PI*2);
+  ctx2d.fillStyle = dead ? "#d7d9e4" : "#3d5af1"; ctx2d.fill(); ctx2d.stroke();
+
+  ctx2d.beginPath(); ctx2d.moveTo(midX, shoulderY); ctx2d.lineTo(midX, hipY); ctx2d.stroke();
+
+  ctx2d.beginPath(); ctx2d.moveTo(midX, shoulderY+2); ctx2d.lineTo(midX-8, shoulderY+13+armOffset); ctx2d.stroke();
+  ctx2d.beginPath(); ctx2d.moveTo(midX, shoulderY+2); ctx2d.lineTo(midX+8, shoulderY+13-armOffset); ctx2d.stroke();
+
+  if(grounded){
+    ctx2d.beginPath(); ctx2d.moveTo(midX, hipY); ctx2d.lineTo(midX-6-legOffset, footY); ctx2d.stroke();
+    ctx2d.beginPath(); ctx2d.moveTo(midX, hipY); ctx2d.lineTo(midX+6+legOffset, footY); ctx2d.stroke();
+  } else {
+    ctx2d.beginPath(); ctx2d.moveTo(midX, hipY); ctx2d.lineTo(midX-9, hipY+8); ctx2d.lineTo(midX-5, footY); ctx2d.stroke();
+    ctx2d.beginPath(); ctx2d.moveTo(midX, hipY); ctx2d.lineTo(midX+9, hipY+8); ctx2d.lineTo(midX+5, footY); ctx2d.stroke();
+  }
+}
 function drawPlayer(){
   ctx2d.save();
   ctx2d.translate(player.x+player.w/2, player.y+player.h/2);
   ctx2d.scale(player.facing,1);
-  ctx2d.fillStyle = mode==="dead" ? "#b8bccb" : "#3d5af1";
-  drawRoundedCentered(player.w, player.h, 8);
-  ctx2d.fillStyle = "#fff";
-  ctx2d.beginPath(); ctx2d.arc(4,-6,2.4,0,7); ctx2d.fill();
+  drawStickFigure(player.w, player.h, player.grounded, walkPhase, mode==="dead", Math.min(1, Math.abs(player.vx)/80));
   ctx2d.restore();
+}
+
+/* Ne montre que la zone jouable (entre les murs de bordure) : tout le
+   reste (les murs eux-mêmes, et au-delà) reste en noir — comme si les
+   bornes étaient le cadre même de l'écran. Si le niveau n'a pas de murs
+   de bordure, on retombe sur le monde 800x450 entier. */
+function computePlayArea(){
+  const top = objects.find(o=>o.id==="_boundTop");
+  const left = objects.find(o=>o.id==="_boundLeft");
+  const right = objects.find(o=>o.id==="_boundRight");
+  const x0 = left ? left.x+left.w : 0;
+  const y0 = top ? top.y+top.h : 0;
+  const x1 = right ? right.x : W;
+  return { x:x0, y:y0, w:Math.max(1,x1-x0), h:Math.max(1,H-y0) };
 }
 
 function render(){
   ctx2d.clearRect(0,0,W,H);
+  ctx2d.fillStyle = "#000";
+  ctx2d.fillRect(0,0,W,H);
+  ctx2d.save();
+  const area = computePlayArea();
+  ctx2d.beginPath(); ctx2d.rect(area.x,area.y,area.w,area.h); ctx2d.clip();
   const grad = ctx2d.createLinearGradient(0,0,0,H);
   grad.addColorStop(0,"#eef1fb"); grad.addColorStop(1,"#e2e6f6");
   ctx2d.fillStyle = grad; ctx2d.fillRect(0,0,W,H);
   drawExit();
   for(const o of objects) drawObject(o);
   drawPlayer();
+  ctx2d.restore();
 }
 
 /* Boucle de jeu générique, partagée. `loopRunning` permet à l'éditeur de

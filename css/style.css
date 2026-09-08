@@ -108,3 +108,27 @@ canvas{ display:block; width:100%; height:100%; }
 .trapEmpty{ font-size:12.5px; color:var(--muted); font-style:italic; }
 .hint{ font-size:12px; color:var(--muted); line-height:1.5; margin:0; }
 #closeDrawer{ position:absolute; top:12px; right:12px; }
+
+/* ---------------------------- Modale (Firebase) ---------------------------- */
+.field{ margin:12px 0 0; }
+.field label{ display:block; font-size:11.5px; color:var(--muted); margin-bottom:4px; }
+.field input{
+  width:100%; border:1px solid var(--border); border-radius:8px; padding:8px 10px;
+  font-size:13px; background:#fff; color:var(--text);
+}
+.modalBackdrop{ display:none; position:fixed; inset:0; background:rgba(15,17,30,.45); z-index:60; }
+.modalBackdrop.show{ display:block; }
+.modal{
+  display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+  width:400px; max-width:92vw; max-height:84vh; overflow-y:auto; background:var(--panel);
+  border-radius:14px; box-shadow:0 20px 60px rgba(20,22,40,.25); z-index:61;
+}
+.modal.show{ display:block; }
+.modalHeader{
+  display:flex; align-items:center; justify-content:space-between; padding:12px 14px;
+  border-bottom:1px solid var(--border);
+}
+.modalPanel{ padding:14px; }
+.fbStatusMsg{ font-size:12.5px; margin-top:8px; min-height:1em; }
+.fbStatusMsg.error{ color:var(--danger); }
+.fbStatusMsg.ok{ color:var(--ok); }

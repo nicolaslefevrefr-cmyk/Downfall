@@ -35,7 +35,7 @@ function renderDrawer(){
     const p = progress[lv.id];
     const row = document.createElement("div");
     row.className = "levelRow" + (lv.id === level.id ? " active" : "");
-    row.innerHTML = '<div><div class="lname">'+(p.completed?"✅ ":"")+lv.name+(IMPORTED_LEVELS.includes(lv)?" <small>(importé)</small>":"")+'</div>'+
+    row.innerHTML = '<div><div class="lname">'+(p.completed?"✅ ":"")+lv.name+(IMPORTED_LEVELS.includes(lv)?" <small>(importé)</small>":"")+(FIREBASE_LEVELS.includes(lv)?" <small>(Firebase)</small>":"")+'</div>'+
       '<div class="lmeta">'+p.attempts+' tentative(s) · '+p.discovered.length+'/'+lv.objects.filter(o=>o.trap&&o.trap.trigger).length+' pièges vus</div></div>'+
       '<div class="lstars">'+stars(lv.difficulty)+'</div>';
     row.addEventListener("click", () => { buildLevel(lv); closeDrawer(); });
@@ -152,6 +152,62 @@ document.getElementById("fileImportLevel").addEventListener("change", (e) => {
   reader.readAsText(file);
   e.target.value = "";
 });
+
+/* ---------------------------- Firebase (chargement des niveaux FINAL) ---------------------------- */
+const fbBackdrop = document.getElementById("fbBackdrop");
+const fbModal = document.getElementById("fbModal");
+function openFirebaseModal(){
+  fbBackdrop.classList.add("show"); fbModal.classList.add("show");
+  const s = getFirebaseSettings();
+  document.getElementById("fbDatabaseUrl").value = s.databaseURL || "";
+  document.getElementById("fbAuthToken").value = s.authToken || "";
+  document.getElementById("fbSettingsStatus").textContent = "";
+}
+function closeFirebaseModal(){ fbBackdrop.classList.remove("show"); fbModal.classList.remove("show"); }
+document.getElementById("btnSettings").addEventListener("click", openFirebaseModal);
+document.getElementById("fbModalClose").addEventListener("click", closeFirebaseModal);
+fbBackdrop.addEventListener("click", closeFirebaseModal);
+
+document.getElementById("fbSaveSettingsBtn").addEventListener("click", async () => {
+  const settings = {
+    databaseURL: document.getElementById("fbDatabaseUrl").value.trim(),
+    authToken: document.getElementById("fbAuthToken").value.trim(),
+  };
+  saveFirebaseSettings(settings);
+  const msg = document.getElementById("fbSettingsStatus");
+  msg.textContent = "Chargement des niveaux…"; msg.className = "fbStatusMsg";
+  const n = await loadFirebaseFinalLevels();
+  if(n < 0){ msg.textContent = "Paramètres enregistrés, mais échec du chargement."; msg.className = "fbStatusMsg error"; }
+  else { msg.textContent = "Paramètres enregistrés — "+n+" niveau(x) FINAL chargé(s)."; msg.className = "fbStatusMsg ok"; }
+});
+
+/* Charge tous les niveaux marqués "FINAL" sur Firebase et les ajoute à la
+   liste jouable. Retourne le nombre de niveaux chargés, ou -1 en cas
+   d'échec (pas de base configurée, erreur réseau...). Silencieux au
+   démarrage (pas de base configurée = simplement aucun niveau distant). */
+async function loadFirebaseFinalLevels(){
+  const settings = getFirebaseSettings();
+  if(!settings.databaseURL) return 0;
+  try{
+    const levels = await firebaseListLevels(settings);
+    FIREBASE_LEVELS = [];
+    for(const id of Object.keys(levels)){
+      const lv = levels[id];
+      if(lv && lv.status === "FINAL" && Array.isArray(lv.objects)){
+        FIREBASE_LEVELS.push(lv);
+        ensureLevelProgress(lv.id || id);
+      }
+    }
+    renderDrawer();
+    return FIREBASE_LEVELS.length;
+  }catch(err){
+    return -1;
+  }
+}
+/* Au tout premier chargement de la page, si une base est déjà configurée
+   (fichier firebase-config.js ou réglage précédemment enregistré), on
+   récupère les niveaux FINAL sans rien demander à l'utilisateur. */
+loadFirebaseFinalLevels();
 
 /* ---------------------------- PWA ---------------------------- */
 if("serviceWorker" in navigator){
