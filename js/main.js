@@ -277,6 +277,22 @@ if("serviceWorker" in navigator){
     window.location.reload();
   });
 }
+
+/* Plein écran au premier contact (uniquement quand l'app tourne déjà en
+   PWA installée — inutile et un peu intrusif dans un simple onglet de
+   navigateur, donc on ne le tente pas dans ce cas). L'API Fullscreen exige
+   un geste utilisateur, d'où l'écouteur "une fois" sur la première pression. */
+function isStandalonePwa(){
+  return window.matchMedia("(display-mode: standalone)").matches ||
+    window.matchMedia("(display-mode: fullscreen)").matches || window.navigator.standalone === true;
+}
+if(isStandalonePwa() && document.documentElement.requestFullscreen){
+  const tryFullscreen = () => {
+    document.documentElement.requestFullscreen().catch(() => {});
+    window.removeEventListener("pointerdown", tryFullscreen);
+  };
+  window.addEventListener("pointerdown", tryFullscreen, { once:true });
+}
 let deferredPrompt = null;
 const installBtn = document.getElementById("installBtn");
 window.addEventListener("beforeinstallprompt", (e) => {

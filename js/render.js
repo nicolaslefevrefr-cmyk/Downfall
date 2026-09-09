@@ -123,6 +123,10 @@ function drawObject(o){
   const shakeOff = (o.state === "shaking") ? Math.sin(now*0.06)*2 : 0;
   ctx2d.save();
   ctx2d.translate(shakeOff,0);
+  if(o.angle){
+    const cx = o.x+o.w/2, cy = o.y+o.h/2;
+    ctx2d.translate(cx,cy); ctx2d.rotate(o.angle*Math.PI/180); ctx2d.translate(-cx,-cy);
+  }
   switch(o.kind){
     case "static":
       drawBrick(o.x,o.y,o.w,o.h);
