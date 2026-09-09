@@ -26,21 +26,98 @@ function updateHUD(){
   renderDrawer();
 }
 
-const levelListEl = document.getElementById("levelList");
+const levelMapNodesEl = document.getElementById("levelMapNodes");
+const levelMapPathEl = document.getElementById("levelMapPath");
+const levelMapWrapEl = document.getElementById("levelMapWrap");
 const statsBlockEl = document.getElementById("statsBlock");
 const trapLogEl = document.getElementById("trapLog");
-function renderDrawer(){
-  levelListEl.innerHTML = "";
-  for(const lv of allLevels()){
-    const p = progress[lv.id];
-    const row = document.createElement("div");
-    row.className = "levelRow" + (lv.id === level.id ? " active" : "");
-    row.innerHTML = '<div><div class="lname">'+(p.completed?"✅ ":"")+lv.name+(IMPORTED_LEVELS.includes(lv)?" <small>(importé)</small>":"")+(FIREBASE_LEVELS.includes(lv)?" <small>(Firebase)</small>":"")+'</div>'+
-      '<div class="lmeta">'+p.attempts+' tentative(s) · '+p.discovered.length+'/'+lv.objects.filter(o=>o.trap&&o.trap.trigger).length+' pièges vus</div></div>'+
-      '<div class="lstars">'+stars(lv.difficulty)+'</div>';
-    row.addEventListener("click", () => { buildLevel(lv); closeDrawer(); });
-    levelListEl.appendChild(row);
+
+/* Niveaux intégrés dans leur ordre de progression prévu, puis niveaux
+   importés/Firebase triés par identifiant (numérique quand c'est possible —
+   les identifiants de niveau sont tirés aléatoirement à la création, ce
+   qui donne un ordre fixe mais non choisi). */
+function orderedLevels(){
+  const rest = IMPORTED_LEVELS.concat(FIREBASE_LEVELS).slice().sort((a,b)=>{
+    const na = parseInt(a.id,10), nb = parseInt(b.id,10);
+    if(!isNaN(na) && !isNaN(nb)) return na-nb;
+    return String(a.id).localeCompare(String(b.id));
+  });
+  return LEVELS_SOURCE.concat(rest);
+}
+
+/* Carte "serpentin" : les niveaux sont posés en grille de MAP_COLS colonnes,
+   en zigzag (une ligne part de la gauche, la suivante repart de la droite),
+   du bas vers le haut — comme une piste de progression. Un trait courbe
+   relie les cases dans l'ordre, avec un petit arrondi à chaque virage. */
+const MAP_COLS = 3, MAP_NODE = 52, MAP_COLGAP = 96, MAP_ROWGAP = 96, MAP_PAD = 36;
+function nodeCenter(i){
+  const row = Math.floor(i / MAP_COLS);
+  const posInRow = i % MAP_COLS;
+  const col = (row % 2 === 0) ? posInRow : (MAP_COLS - 1 - posInRow);
+  return { x: MAP_PAD + col*MAP_COLGAP + MAP_NODE/2, rowFromBottom: row };
+}
+function renderLevelMap(){
+  const levels = orderedLevels();
+  const n = levels.length;
+  const totalRows = Math.max(1, Math.ceil(n / MAP_COLS));
+  const contentHeight = MAP_PAD*2 + (totalRows-1)*MAP_ROWGAP + MAP_NODE;
+  const contentWidth = MAP_PAD*2 + (MAP_COLS-1)*MAP_COLGAP + MAP_NODE;
+
+  levelMapWrapEl.style.height = Math.min(contentHeight, window.innerHeight*0.52) + "px";
+  levelMapNodesEl.style.height = contentHeight + "px";
+  levelMapNodesEl.style.width = contentWidth + "px";
+  levelMapPathEl.setAttribute("width", contentWidth);
+  levelMapPathEl.setAttribute("height", contentHeight);
+
+  const centers = [];
+  levelMapNodesEl.innerHTML = "";
+  let firstUnlockedTop = null;
+  for(let i=0;i<n;i++){
+    const lv = levels[i];
+    const c = nodeCenter(i);
+    const y = contentHeight - MAP_PAD - c.rowFromBottom*MAP_ROWGAP - MAP_NODE/2;
+    centers.push({ x:c.x, y });
+
+    const p = progress[lv.id] || {attempts:0, discovered:[], completed:false};
+    const unlocked = i===0 || (progress[levels[i-1].id] && progress[levels[i-1].id].completed);
+    let state = "locked";
+    if(unlocked) state = p.completed ? "completed" : (p.attempts>0 ? "attempted" : "unlocked");
+
+    const node = document.createElement("div");
+    node.className = "levelNode " + state + (lv.id===level.id ? " current" : "");
+    node.style.left = (c.x - MAP_NODE/2) + "px";
+    node.style.top = (y - MAP_NODE/2) + "px";
+    node.textContent = state==="locked" ? "🔒" : String(i+1);
+    node.title = lv.name + (state==="locked" ? " (verrouillé)" : "");
+    if(unlocked){
+      node.addEventListener("click", () => { buildLevel(lv); closeDrawer(); });
+      if(firstUnlockedTop===null || !p.completed) firstUnlockedTop = y;
+    }
+    levelMapNodesEl.appendChild(node);
   }
+
+  // Trait courbe reliant les cases dans l'ordre, avec un arrondi à chaque virage.
+  let d = "";
+  if(centers.length){
+    d = "M "+centers[0].x+" "+centers[0].y;
+    for(let i=1;i<centers.length-1;i++){
+      const mx = (centers[i].x+centers[i+1].x)/2, my = (centers[i].y+centers[i+1].y)/2;
+      d += " Q "+centers[i].x+" "+centers[i].y+" "+mx+" "+my;
+    }
+    if(centers.length>1){ const last=centers[centers.length-1]; d += " L "+last.x+" "+last.y; }
+  }
+  levelMapPathEl.innerHTML = '<path d="'+d+'" fill="none" stroke="#c7cce0" stroke-width="6" stroke-linecap="round"/>';
+
+  // Fait défiler pour montrer le niveau courant / le prochain à jouer.
+  const targetY = (function(){
+    const idx = levels.findIndex(lv=>lv.id===level.id);
+    return idx>=0 ? centers[idx].y : (firstUnlockedTop||contentHeight);
+  })();
+  levelMapWrapEl.scrollTop = Math.max(0, targetY - levelMapWrapEl.clientHeight/2);
+}
+
+function renderDrawer(){
+  renderLevelMap();
   const p = progress[level.id];
   statsBlockEl.innerHTML =
     '<div class="statLine"><span>Tentatives (niveau)</span><span>'+p.attempts+'</span></div>'+
@@ -153,38 +230,13 @@ document.getElementById("fileImportLevel").addEventListener("change", (e) => {
   e.target.value = "";
 });
 
-/* ---------------------------- Firebase (chargement des niveaux FINAL) ---------------------------- */
-const fbBackdrop = document.getElementById("fbBackdrop");
-const fbModal = document.getElementById("fbModal");
-function openFirebaseModal(){
-  fbBackdrop.classList.add("show"); fbModal.classList.add("show");
-  const s = getFirebaseSettings();
-  document.getElementById("fbDatabaseUrl").value = s.databaseURL || "";
-  document.getElementById("fbAuthToken").value = s.authToken || "";
-  document.getElementById("fbSettingsStatus").textContent = "";
-}
-function closeFirebaseModal(){ fbBackdrop.classList.remove("show"); fbModal.classList.remove("show"); }
-document.getElementById("btnSettings").addEventListener("click", openFirebaseModal);
-document.getElementById("fbModalClose").addEventListener("click", closeFirebaseModal);
-fbBackdrop.addEventListener("click", closeFirebaseModal);
-
-document.getElementById("fbSaveSettingsBtn").addEventListener("click", async () => {
-  const settings = {
-    databaseURL: document.getElementById("fbDatabaseUrl").value.trim(),
-    authToken: document.getElementById("fbAuthToken").value.trim(),
-  };
-  saveFirebaseSettings(settings);
-  const msg = document.getElementById("fbSettingsStatus");
-  msg.textContent = "Chargement des niveaux…"; msg.className = "fbStatusMsg";
-  const n = await loadFirebaseFinalLevels();
-  if(n < 0){ msg.textContent = "Paramètres enregistrés, mais échec du chargement."; msg.className = "fbStatusMsg error"; }
-  else { msg.textContent = "Paramètres enregistrés — "+n+" niveau(x) FINAL chargé(s)."; msg.className = "fbStatusMsg ok"; }
-});
-
+/* ---------------------------- Firebase (chargement des niveaux FINAL) ----------------------------
+   Uniquement piloté par js/firebase-config.js — pas de réglage modifiable
+   depuis l'interface : la seule façon de pointer vers une autre base est de
+   modifier ce fichier directement avant de déployer. */
 /* Charge tous les niveaux marqués "FINAL" sur Firebase et les ajoute à la
-   liste jouable. Retourne le nombre de niveaux chargés, ou -1 en cas
-   d'échec (pas de base configurée, erreur réseau...). Silencieux au
-   démarrage (pas de base configurée = simplement aucun niveau distant). */
+   liste jouable. Silencieux si aucune base n'est configurée, ou en cas
+   d'échec réseau (le jeu reste jouable avec les niveaux intégrés). */
 async function loadFirebaseFinalLevels(){
   const settings = getFirebaseSettings();
   if(!settings.databaseURL) return 0;
@@ -237,5 +289,12 @@ installBtn.addEventListener("click", async () => {
 });
 
 /* ---------------------------- Démarrage ---------------------------- */
+/* Verrouillage de l'orientation en paysage (fonctionne surtout en PWA
+   installée / plein écran). Dans un simple onglet de navigateur, le repli
+   CSS (#rotateOverlay) prend le relais dans tous les cas. */
+if(matchMedia("(max-width: 900px)").matches && screen.orientation && screen.orientation.lock){
+  screen.orientation.lock("landscape").catch(()=>{});
+}
+
 buildLevel(LEVELS_SOURCE[0]);
 requestAnimationFrame(frame);

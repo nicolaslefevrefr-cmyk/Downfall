@@ -233,6 +233,13 @@ function buildLevel(lv){
    concerné : arrivée par le haut / par le bas d'abord (cas fréquents,
    sol et plafond), sinon la pénétration la plus faible (mur). */
 function resolveCollisions(dt){
+  /* fallSign = sens de la gravité actuelle (1 = normale, -1 = inversée).
+     Toute la résolution ci-dessous est symétrique par rapport à ce signe :
+     avec une gravité inversée, "atterrir" veut dire se coller au DESSOUS
+     d'une plateforme (le sol est au plafond), et le rattrapage de saut
+     s'applique vers une plateforme plus basse (dans le sens opposé à la
+     gravité) plutôt que plus haute. */
+  const fallSign = currentGravity >= 0 ? 1 : -1;
   const prevBottom = player.y + player.h;
   const prevTop = player.y;
   player.x += player.vx * dt;
@@ -248,43 +255,72 @@ function resolveCollisions(dt){
     const box = effectiveBox(o);
     if(!overlap(player,box)) continue;
 
-    if(player.vy >= 0 && prevBottom <= box.y + 2){
-      player.y = box.y - player.h; player.vy = 0;
-      player.grounded = true; player.groundedOn = o.id; player.lastGroundY = box.y;
-      continue;
-    }
-    if(player.vy < 0 && prevTop >= box.y + box.h - 2){
-      player.y = box.y + box.h; player.vy = 0;
-      player.lastBump = { id:o.id, t: now };
-      continue;
+    if(fallSign > 0){
+      if(player.vy >= 0 && prevBottom <= box.y + 2){
+        player.y = box.y - player.h; player.vy = 0;
+        player.grounded = true; player.groundedOn = o.id; player.lastGroundY = box.y;
+        continue;
+      }
+      if(player.vy < 0 && prevTop >= box.y + box.h - 2){
+        player.y = box.y + box.h; player.vy = 0;
+        player.lastBump = { id:o.id, t: now };
+        continue;
+      }
+    } else {
+      if(player.vy <= 0 && prevTop >= box.y + box.h - 2){
+        player.y = box.y + box.h; player.vy = 0;
+        player.grounded = true; player.groundedOn = o.id; player.lastGroundY = box.y + box.h;
+        continue;
+      }
+      if(player.vy > 0 && prevBottom <= box.y + 2){
+        player.y = box.y - player.h; player.vy = 0;
+        player.lastBump = { id:o.id, t: now };
+        continue;
+      }
     }
 
     const overlapX = Math.min(player.x+player.w, box.x+box.w) - Math.max(player.x, box.x);
     const overlapY = Math.min(player.y+player.h, box.y+box.h) - Math.max(player.y, box.y);
     if(overlapX < overlapY){
       /* Aide au pas : mesurée par rapport à la position AVANT le déplacement
-         de cette image (pas après) — à haute vitesse de chute, quelques px
-         de marge peuvent être franchis en une seule image, et la mesure
-         "après" manquerait presque toujours la fenêtre de rattrapage.
-         ... mais seulement pour grimper sur une plateforme nettement plus
-         HAUTE que celle qu'on vient de quitter. Si la cible est à la même
-         hauteur (ou plus basse), pas de rattrapage — sinon ça bouche aussi
-         les petits trous qu'on traverse simplement en marchant. */
-      const shortfall = prevBottom - box.y;
-      const targetIsRaised = player.lastGroundY == null || box.y < player.lastGroundY - 2;
-      if(targetIsRaised && shortfall > 0 && shortfall <= STEP_UP && player.vy >= 0){
-        player.y = box.y - player.h; player.vy = 0;
-        player.grounded = true; player.groundedOn = o.id; player.lastGroundY = box.y;
+         de cette image (pas après) — à haute vitesse, quelques px de marge
+         peuvent être franchis en une seule image. Seulement pour grimper
+         vers une plateforme nettement plus proche du "plafond effectif"
+         que celle qu'on vient de quitter — jamais pour boucher un petit
+         trou qu'on traverse simplement en marchant. */
+      let shortfall, targetIsRaised, movingTowardSurface;
+      if(fallSign > 0){
+        shortfall = prevBottom - box.y;
+        targetIsRaised = player.lastGroundY == null || box.y < player.lastGroundY - 2;
+        movingTowardSurface = player.vy >= 0;
+      } else {
+        shortfall = (box.y + box.h) - prevTop;
+        targetIsRaised = player.lastGroundY == null || (box.y + box.h) > player.lastGroundY + 2;
+        movingTowardSurface = player.vy <= 0;
+      }
+      if(targetIsRaised && shortfall > 0 && shortfall <= STEP_UP && movingTowardSurface){
+        if(fallSign > 0){ player.y = box.y - player.h; player.lastGroundY = box.y; }
+        else { player.y = box.y + box.h; player.lastGroundY = box.y + box.h; }
+        player.vy = 0; player.grounded = true; player.groundedOn = o.id;
       } else {
         if(player.x < box.x) player.x -= overlapX; else player.x += overlapX;
         player.vx = 0;
       }
     } else {
-      if(player.y < box.y){
-        player.y -= overlapY; player.vy = 0; player.grounded = true; player.groundedOn = o.id; player.lastGroundY = box.y;
+      if(fallSign > 0){
+        if(player.y < box.y){
+          player.y -= overlapY; player.vy = 0; player.grounded = true; player.groundedOn = o.id; player.lastGroundY = box.y;
+        } else {
+          player.y += overlapY; player.vy = 0;
+          player.lastBump = { id:o.id, t: now };
+        }
       } else {
-        player.y += overlapY; player.vy = 0;
-        player.lastBump = { id:o.id, t: now };
+        if(player.y + player.h > box.y + box.h){
+          player.y += overlapY; player.vy = 0; player.grounded = true; player.groundedOn = o.id; player.lastGroundY = box.y + box.h;
+        } else {
+          player.y -= overlapY; player.vy = 0;
+          player.lastBump = { id:o.id, t: now };
+        }
       }
     }
   }
@@ -333,7 +369,11 @@ function update(dt){
 
   player.justJumped = false;
   if(input.jumpQueued && player.grounded){
-    player.vy = JUMP_VELOCITY; player.grounded = false; player.groundedOn = null;
+    /* Le saut pousse toujours à l'OPPOSÉ du sens de la gravité actuelle :
+       avec une gravité inversée (on est collé au plafond), sauter pousse
+       vers le bas, pas vers le haut. */
+    player.vy = currentGravity >= 0 ? JUMP_VELOCITY : -JUMP_VELOCITY;
+    player.grounded = false; player.groundedOn = null;
     player.justJumped = true;
   }
   input.jumpQueued = false;
@@ -362,6 +402,7 @@ function update(dt){
   for(let s = 0; s < SUBSTEPS; s++){
     player.vy += currentGravity * subDt;
     if(player.vy > MAX_FALL) player.vy = MAX_FALL;
+    if(player.vy < -MAX_FALL) player.vy = -MAX_FALL;
     resolveCollisions(subDt);
   }
 

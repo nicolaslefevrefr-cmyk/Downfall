@@ -220,7 +220,7 @@ function drawStickFigure(w, h, grounded, phase, dead, speedFrac){
 function drawPlayer(){
   ctx2d.save();
   ctx2d.translate(player.x+player.w/2, player.y+player.h/2);
-  ctx2d.scale(player.facing,1);
+  ctx2d.scale(player.facing, currentGravity<0 ? -1 : 1);
   drawStickFigure(player.w, player.h, player.grounded, walkPhase, mode==="dead", Math.min(1, Math.abs(player.vx)/80));
   ctx2d.restore();
 }
