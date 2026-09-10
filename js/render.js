@@ -10,6 +10,37 @@
 const canvas = document.getElementById("game");
 const ctx2d = canvas.getContext("2d");
 
+/* Transition en fondu vers/depuis le noir — utilisée par le jeu pour
+   adoucir la mort et les changements de niveau. Neutre par défaut (alpha
+   toujours à 0, aucun effet) tant que fadeTransition() n'est pas appelée ;
+   l'éditeur (qui partage ce fichier pour son mode test) ne l'utilise pas. */
+let fadeAlpha = 0, fadeDir = 0, fadeSpeed = 0, fadeMidCallback = null;
+function fadeTransition(midCallback, fadeMs){
+  fadeSpeed = 1 / ((fadeMs || 220) / 1000);
+  fadeDir = 1;
+  fadeMidCallback = midCallback || null;
+}
+function updateFade(dt){
+  if(fadeDir === 0) return;
+  fadeAlpha += fadeDir * fadeSpeed * dt;
+  if(fadeDir > 0 && fadeAlpha >= 1){
+    fadeAlpha = 1;
+    if(fadeMidCallback){ const cb = fadeMidCallback; fadeMidCallback = null; cb(); }
+    fadeDir = -1;
+  } else if(fadeDir < 0 && fadeAlpha <= 0){
+    fadeAlpha = 0; fadeDir = 0;
+  }
+}
+function drawFadeOverlay(){
+  if(fadeAlpha <= 0) return;
+  ctx2d.save();
+  ctx2d.setTransform(1,0,0,1,0,0);
+  ctx2d.globalAlpha = fadeAlpha;
+  ctx2d.fillStyle = "#000";
+  ctx2d.fillRect(0,0,canvas.width,canvas.height);
+  ctx2d.restore();
+}
+
 function drawRounded(x,y,w,h,r){
   ctx2d.beginPath();
   ctx2d.moveTo(x+r,y);
@@ -34,6 +65,34 @@ function drawRoundedCentered(w,h,r){
    pièges) afin qu'aucun indice visuel ne trahisse un piège avant qu'il ne
    se déclenche. Le motif est calculé à partir des coordonnées absolues,
    donc les briques s'alignent naturellement entre objets adjacents. */
+/* Taille de grille du jeu (20px), utilisée pour caler le carrelage des
+   blocs sur les mêmes unités que l'éditeur. */
+const GRID_SIZE = 20;
+
+/* Carrelage du bloc Mario (block.png, 16x16 d'origine) mis à l'échelle sur
+   la grille du jeu : autant de tuiles que nécessaire pour couvrir la zone,
+   calées sur des multiples de GRID_SIZE à partir de l'origine du monde
+   (pas du coin de l'objet) pour que des objets adjacents non alignés sur
+   la grille se raccordent quand même visuellement. Tant que l'image n'est
+   pas chargée, on retombe sur l'ancien motif vectoriel (aucun flash blanc). */
+function drawBlockTile(x,y,w,h){
+  ctx2d.save();
+  ctx2d.beginPath(); ctx2d.rect(x,y,w,h); ctx2d.clip();
+  if(SPRITE_BLOCK.complete && SPRITE_BLOCK.naturalWidth>0){
+    ctx2d.imageSmoothingEnabled = false;
+    const startX = Math.floor(x/GRID_SIZE)*GRID_SIZE;
+    const startY = Math.floor(y/GRID_SIZE)*GRID_SIZE;
+    for(let ty=startY; ty<y+h; ty+=GRID_SIZE){
+      for(let tx=startX; tx<x+w; tx+=GRID_SIZE){
+        ctx2d.drawImage(SPRITE_BLOCK, tx, ty, GRID_SIZE, GRID_SIZE);
+      }
+    }
+  } else {
+    drawBrick(x,y,w,h);
+  }
+  ctx2d.restore();
+}
+
 function drawBrick(x,y,w,h){
   const brickW = 22, brickH = 11, gap = 2;
   ctx2d.save();
@@ -129,10 +188,10 @@ function drawObject(o){
   }
   switch(o.kind){
     case "static":
-      drawBrick(o.x,o.y,o.w,o.h);
+      drawBlockTile(o.x,o.y,o.w,o.h);
       break;
     case "falling":
-      drawBrick(o.x,o.y,o.w,o.h);
+      drawBlockTile(o.x,o.y,o.w,o.h);
       if(o.state==="shaking" || o.state==="falling"){
         ctx2d.strokeStyle = "rgba(40,20,10,.55)"; ctx2d.lineWidth=1.5;
         ctx2d.beginPath();
@@ -168,10 +227,10 @@ function drawObject(o){
       }
       break;
     case "gate":
-      drawStoneBrick(o.x,o.y,o.w,o.h);
+      drawBlockTile(o.x,o.y,o.w,o.h);
       break;
     case "blocker":
-      drawBrick(o.x,o.y,o.w,o.h);
+      drawBlockTile(o.x,o.y,o.w,o.h);
       ctx2d.strokeStyle = "rgba(224,69,92,.55)"; ctx2d.lineWidth = 2;
       ctx2d.strokeRect(o.x+1,o.y+1,o.w-2,o.h-2);
       break;
@@ -222,10 +281,39 @@ function drawStickFigure(w, h, grounded, phase, dead, speedFrac){
   }
 }
 function drawPlayer(){
+  /* Sprite Mario si l'image est chargée, sinon repli sur la silhouette
+     bonhomme-bâton (aucun flash blanc/cassé pendant le chargement). */
+  const facingRight = player.facing >= 0;
+  let img;
+  if(!player.grounded){
+    img = facingRight ? MARIO_SPRITES.jumpR : MARIO_SPRITES.jumpL;
+  } else if(Math.abs(player.vx) > 5){
+    const set = facingRight ? MARIO_SPRITES.walkR : MARIO_SPRITES.walkL;
+    img = set[Math.floor(walkPhase*0.6) % set.length];
+  } else {
+    img = facingRight ? MARIO_SPRITES.idleR : MARIO_SPRITES.idleL;
+  }
+
+  if(!img || !img.complete || !img.naturalWidth){
+    ctx2d.save();
+    ctx2d.translate(player.x+player.w/2, player.y+player.h/2);
+    ctx2d.scale(player.facing, currentGravity<0 ? -1 : 1);
+    drawStickFigure(player.w, player.h, player.grounded, walkPhase, mode==="dead", Math.min(1, Math.abs(player.vx)/80));
+    ctx2d.restore();
+    return;
+  }
+
+  const scale = player.h / img.naturalHeight;
+  const dw = img.naturalWidth*scale, dh = img.naturalHeight*scale;
   ctx2d.save();
+  ctx2d.imageSmoothingEnabled = false;
+  if(mode==="dead") ctx2d.globalAlpha = 0.55;
   ctx2d.translate(player.x+player.w/2, player.y+player.h/2);
-  ctx2d.scale(player.facing, currentGravity<0 ? -1 : 1);
-  drawStickFigure(player.w, player.h, player.grounded, walkPhase, mode==="dead", Math.min(1, Math.abs(player.vx)/80));
+  /* La gravité inversée retourne le personnage autour du CENTRE de sa
+     boîte (pas de ses pieds) : ses pieds, dessinés en bas dans le repère
+     non retourné, se retrouvent donc bien en haut — collés au "plafond". */
+  if(currentGravity<0) ctx2d.scale(1,-1);
+  ctx2d.drawImage(img, -dw/2, player.h/2-dh, dw, dh);
   ctx2d.restore();
 }
 
@@ -257,6 +345,7 @@ function render(){
   for(const o of objects) drawObject(o);
   drawPlayer();
   ctx2d.restore();
+  drawFadeOverlay();
 }
 
 /* Boucle de jeu générique, partagée. `loopRunning` permet à l'éditeur de
@@ -270,6 +359,7 @@ function frame(ts){
   let dt = (ts - lastTs) / 1000;
   lastTs = ts;
   if(dt > 1/30) dt = 1/30;
+  updateFade(dt);
   if(mode === "playing") update(dt);
   render();
   requestAnimationFrame(frame);

@@ -15,7 +15,7 @@ function showOverlay(title,text,btn){
   overlayEl.classList.add("show");
 }
 function hideOverlay(){ overlayEl.classList.remove("show"); }
-overlayBtn.addEventListener("click", () => { buildLevel(level); });
+overlayBtn.addEventListener("click", () => { fadeTransition(() => buildLevel(level)); });
 
 const levelNameEl = document.getElementById("levelName");
 const levelDiffEl = document.getElementById("levelDiff");
@@ -90,7 +90,7 @@ function renderLevelMap(){
     node.textContent = state==="locked" ? "🔒" : String(i+1);
     node.title = lv.name + (state==="locked" ? " (verrouillé)" : "");
     if(unlocked){
-      node.addEventListener("click", () => { buildLevel(lv); closeDrawer(); });
+      node.addEventListener("click", () => { fadeTransition(() => buildLevel(lv)); closeDrawer(); });
       if(firstUnlockedTop===null || !p.completed) firstUnlockedTop = y;
     }
     levelMapNodesEl.appendChild(node);
@@ -150,6 +150,7 @@ drawerBackdrop.addEventListener("click", closeDrawer);
 function onLevelBuilt(){ hideOverlay(); updateHUD(); }
 function onGameOver(result){
   if(result === "dead"){
+    fadeTransition(()=>{}, 160); // petit flash noir au moment de l'impact
     showOverlay("💀 Perdu", lastCause, "Réessayer");
   } else {
     showOverlay("⭐ Niveau terminé", "Réussi en " + progress[level.id].attempts + " tentative(s).", "Rejouer");
@@ -162,7 +163,7 @@ window.addEventListener("keydown", (e) => {
   if(["ArrowLeft","q","Q"].includes(e.key)){ input.left = true; e.preventDefault(); }
   if(["ArrowRight","d","D"].includes(e.key)){ input.right = true; e.preventDefault(); }
   if(["ArrowUp"," ","w","W","z","Z"].includes(e.key)){ input.jumpQueued = true; e.preventDefault(); }
-  if(e.key === "r" || e.key === "R") buildLevel(level);
+  if(e.key === "r" || e.key === "R") fadeTransition(() => buildLevel(level));
 });
 window.addEventListener("keyup", (e) => {
   if(["ArrowLeft","q","Q"].includes(e.key)) input.left = false;
@@ -222,7 +223,7 @@ document.getElementById("fileImportLevel").addEventListener("change", (e) => {
       if(taken) imported.id = imported.id + "-" + Date.now();
       IMPORTED_LEVELS.push(imported);
       ensureLevelProgress(imported.id);
-      buildLevel(imported);
+      fadeTransition(() => buildLevel(imported));
       closeDrawer();
     }catch(err){ alert("Fichier JSON invalide : " + err.message); }
   };
