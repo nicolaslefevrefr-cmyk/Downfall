@@ -75,6 +75,37 @@ const GRID_SIZE = 20;
    (pas du coin de l'objet) pour que des objets adjacents non alignés sur
    la grille se raccordent quand même visuellement. Tant que l'image n'est
    pas chargée, on retombe sur l'ancien motif vectoriel (aucun flash blanc). */
+/* Plante piranha : une image par unité de grille de largeur (20px, comme
+   pour les blocs), toutes animées EN MÊME TEMPS via une horloge globale
+   (pas de phase par objet) — change de frame chaque seconde. Ancrées par
+   le bas (elles "poussent" depuis le sol de l'objet, comme les pics
+   avant elles). Repli vectoriel (triangles) tant que l'image ne charge pas. */
+function plantFrameIndex(){
+  return Math.floor(now/1000) % PLANT_SPRITES.length;
+}
+function drawPlantRow(x,y,w,h){
+  const img = PLANT_SPRITES[plantFrameIndex()];
+  const n = Math.max(1, Math.round(w/GRID_SIZE));
+  if(!img || !img.complete || !img.naturalWidth){
+    ctx2d.fillStyle = "#e0455c";
+    const cw = w/n;
+    for(let i=0;i<n;i++){
+      const sx = x + i*cw;
+      ctx2d.beginPath();
+      ctx2d.moveTo(sx, y+h); ctx2d.lineTo(sx+cw/2, y); ctx2d.lineTo(sx+cw, y+h);
+      ctx2d.closePath(); ctx2d.fill();
+    }
+    return;
+  }
+  ctx2d.imageSmoothingEnabled = false;
+  const scale = GRID_SIZE/img.naturalWidth;
+  const dw = GRID_SIZE, dh = img.naturalHeight*scale;
+  for(let i=0;i<n;i++){
+    const cx = x + i*GRID_SIZE + GRID_SIZE/2;
+    ctx2d.drawImage(img, cx-dw/2, y+h-dh, dw, dh);
+  }
+}
+
 function drawBlockTile(x,y,w,h){
   ctx2d.save();
   ctx2d.beginPath(); ctx2d.rect(x,y,w,h); ctx2d.clip();
@@ -202,15 +233,7 @@ function drawObject(o){
       break;
     case "hidden_spike":
       if(o.hazard){
-        ctx2d.fillStyle = "#e0455c";
-        for(let i=0;i<3;i++){
-          const sx = o.x + i*(o.w/3);
-          ctx2d.beginPath();
-          ctx2d.moveTo(sx, o.y+o.h);
-          ctx2d.lineTo(sx+o.w/6, o.y);
-          ctx2d.lineTo(sx+o.w/3, o.y+o.h);
-          ctx2d.closePath(); ctx2d.fill();
-        }
+        drawPlantRow(o.x,o.y,o.w,o.h);
       }
       break;
     case "door":
@@ -240,8 +263,15 @@ function drawObject(o){
 
 function drawExit(){
   const e = level.exit;
-  const c = mode==="won" ? "#2fb380" : "#3a9c6c";
-  drawDoorShape(e.x,e.y,e.w,e.h, c, "#eafff3", "#164a33");
+  if(SPRITE_TUBE.complete && SPRITE_TUBE.naturalWidth>0){
+    ctx2d.save();
+    ctx2d.imageSmoothingEnabled = false;
+    ctx2d.drawImage(SPRITE_TUBE, e.x, e.y, e.w, e.h);
+    ctx2d.restore();
+  } else {
+    const c = mode==="won" ? "#2fb380" : "#3a9c6c";
+    drawDoorShape(e.x,e.y,e.w,e.h, c, "#eafff3", "#164a33");
+  }
 }
 
 /* Personnage joueur : un bonhomme-bâton (tête ronde, tronc, bras, jambes)
@@ -321,6 +351,40 @@ function drawPlayer(){
    reste (les murs eux-mêmes, et au-delà) reste en noir — comme si les
    bornes étaient le cadre même de l'écran. Si le niveau n'a pas de murs
    de bordure, on retombe sur le monde 800x450 entier. */
+/* Ciel + nuages : couleur de fond fixe (sky.png), et 2-3 nuages (parmi 3
+   tailles) placés aléatoirement à chaque niveau, dérivant lentement et
+   TOUS dans le même sens (choisi une fois par niveau) — pas chacun pour
+   soi. Ils bouclent d'un bord à l'autre de l'écran. */
+let clouds = [];
+let cloudDriftDir = 1;
+function initClouds(){
+  const count = 2 + Math.floor(Math.random()*2); // 2 ou 3
+  cloudDriftDir = Math.random()<0.5 ? -1 : 1;
+  clouds = [];
+  for(let i=0;i<count;i++){
+    clouds.push({
+      spriteIdx: Math.floor(Math.random()*CLOUD_SPRITES.length),
+      x: Math.random()*W,
+      y: 14 + Math.random()*70,
+    });
+  }
+}
+const CLOUD_SPEED = 6; // px/s — très lent, homogène pour tous les nuages
+function updateClouds(dt){
+  for(const c of clouds){
+    c.x += cloudDriftDir*CLOUD_SPEED*dt;
+    if(c.x > W+90) c.x = -90;
+    if(c.x < -90) c.x = W+90;
+  }
+}
+function drawClouds(){
+  for(const c of clouds){
+    const img = CLOUD_SPRITES[c.spriteIdx];
+    if(!img || !img.complete || !img.naturalWidth) continue;
+    ctx2d.drawImage(img, c.x, c.y, img.naturalWidth, img.naturalHeight);
+  }
+}
+
 function computePlayArea(){
   const top = objects.find(o=>o.id==="_boundTop");
   const left = objects.find(o=>o.id==="_boundLeft");
@@ -328,7 +392,15 @@ function computePlayArea(){
   const x0 = left ? left.x+left.w : 0;
   const y0 = top ? top.y+top.h : 0;
   const x1 = right ? right.x : W;
-  return { x:x0, y:y0, w:Math.max(1,x1-x0), h:Math.max(1,H-y0) };
+  /* Pas de mur de bordure en bas (par design : la chute dans le vide est
+     la façon de mourir, donc rien de solide n'y est jamais posé) — la
+     bande noire du bas est donc purement un recadrage d'affichage. On
+     reprend l'épaisseur du mur du haut pour rester visuellement cohérent
+     avec les trois autres côtés, quelle que soit l'épaisseur choisie par
+     le niveau (le sol continue derrière, comme les murs le font déjà). */
+  const bottomMargin = top ? top.h : (left ? left.w : 20);
+  const y1 = H - bottomMargin;
+  return { x:x0, y:y0, w:Math.max(1,x1-x0), h:Math.max(1,y1-y0) };
 }
 
 function render(){
@@ -338,9 +410,9 @@ function render(){
   ctx2d.save();
   const area = computePlayArea();
   ctx2d.beginPath(); ctx2d.rect(area.x,area.y,area.w,area.h); ctx2d.clip();
-  const grad = ctx2d.createLinearGradient(0,0,0,H);
-  grad.addColorStop(0,"#eef1fb"); grad.addColorStop(1,"#e2e6f6");
-  ctx2d.fillStyle = grad; ctx2d.fillRect(0,0,W,H);
+  ctx2d.fillStyle = SKY_COLOR;
+  ctx2d.fillRect(0,0,W,H);
+  drawClouds();
   drawExit();
   for(const o of objects) drawObject(o);
   drawPlayer();
@@ -360,6 +432,7 @@ function frame(ts){
   lastTs = ts;
   if(dt > 1/30) dt = 1/30;
   updateFade(dt);
+  updateClouds(dt);
   if(mode === "playing") update(dt);
   render();
   requestAnimationFrame(frame);

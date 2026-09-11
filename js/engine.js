@@ -221,6 +221,7 @@ function buildLevel(lv){
   timers = []; now = 0; mode = "playing"; lastCause = null;
   currentGravity = lv.gravity != null ? lv.gravity : DEFAULT_GRAVITY;
   walkPhase = 0;
+  initClouds();
   onLevelBuilt();
 }
 
@@ -327,6 +328,41 @@ function resolveCollisions(dt){
 
   if(player.x < 0) player.x = 0;
   if(player.x + player.w > W) player.x = W - player.w;
+
+  /* Sortie (tube) : solide sur les côtés — bloque comme un mur — mais son
+     dessus (l'ouverture, dans le sens opposé à la gravité) fait gagner dès
+     que le joueur y entre en tombant/sautant dedans. Même logique fallSign
+     que le reste de la fonction, partage prevBottom/prevTop. */
+  resolveExit(fallSign, prevBottom, prevTop);
+}
+function resolveExit(fallSign, prevBottom, prevTop){
+  const e = level.exit;
+  if(!overlap(player, e)) return;
+
+  if(fallSign > 0){
+    if(player.vy >= 0 && prevBottom <= e.y + 10){ onWin(); return; }
+  } else {
+    if(player.vy <= 0 && prevTop >= e.y + e.h - 10){ onWin(); return; }
+  }
+
+  const overlapX = Math.min(player.x+player.w, e.x+e.w) - Math.max(player.x, e.x);
+  const overlapY = Math.min(player.y+player.h, e.y+e.h) - Math.max(player.y, e.y);
+  if(overlapX < overlapY){
+    if(player.x < e.x) player.x -= overlapX; else player.x += overlapX;
+    player.vx = 0;
+  } else {
+    /* Un recouvrement vertical profond résolu ici = le joueur atterrit
+       depuis le côté "ouverture" du tube (au-dessus en gravité normale,
+       en-dessous si inversée) : ça fait gagner aussi, pas juste se poser
+       dessus — cohérent avec le raccourci ci-dessus. */
+    if(fallSign > 0){
+      if(player.y < e.y){ onWin(); return; }
+      else { player.y += overlapY; player.vy = 0; }
+    } else {
+      if(player.y + player.h > e.y + e.h){ onWin(); return; }
+      else { player.y -= overlapY; player.vy = 0; }
+    }
+  }
 }
 
 function update(dt){
@@ -366,6 +402,7 @@ function update(dt){
   player.vx *= MOVE_SPEED;
   if(player.vx > 0) player.facing = 1; else if(player.vx < 0) player.facing = -1;
   walkPhase += Math.abs(player.vx) * dt * 0.15;
+  if(Math.abs(player.vx) < 1) walkPhase = 0;
 
   player.justJumped = false;
   if(input.jumpQueued && player.grounded){
@@ -426,7 +463,6 @@ function update(dt){
     }
   }
 
-  if(overlap(player, level.exit)){ onWin(); return; }
   if(player.y > H + 60){ onDeath(null); return; }
   for(const o of objects){
     if(o.hazard && o.visible !== false && overlap(player,o)){ onDeath(o); return; }

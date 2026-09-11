@@ -137,7 +137,7 @@ const LEVELS_SOURCE = [
   {
     id:"l1", name:"Premier saut", difficulty:1, gravity:DEFAULT_GRAVITY,
     playerStart:{x:40,y:372},
-    exit:{x:730,y:350,w:40,h:60},
+    exit:{x:730,y:370,w:40,h:40},
     objects:[
       ...Kits.static("ground1", 0, 410, 260),
       ...Kits.fallingPlatform("B", 320, 410, 90, { shakeMs:450, fallSpeed:260, description:DESC.FALLING_GENERIC }),
@@ -149,7 +149,7 @@ const LEVELS_SOURCE = [
   {
     id:"l2", name:"Effet domino", difficulty:3, gravity:DEFAULT_GRAVITY,
     playerStart:{x:40,y:372},
-    exit:{x:730,y:350,w:40,h:60},
+    exit:{x:730,y:370,w:40,h:40},
     objects:[
       ...Kits.static("ground1", 0, 410, 200),
       ...Kits.fallingPlatform("B", 260, 410, 80, { shakeMs:700, fallSpeed:300, description:DESC.FALLING_B,
@@ -164,7 +164,7 @@ const LEVELS_SOURCE = [
   {
     id:"l3", name:"Fausse sortie", difficulty:4, gravity:DEFAULT_GRAVITY,
     playerStart:{x:40,y:372},
-    exit:{x:730,y:350,w:40,h:60},
+    exit:{x:730,y:370,w:40,h:40},
     /* Le vrai chemin traverse l'écart (260->350) en un seul saut direct.
        Une plateforme "sûre" flotte dans l'écart pour tenter un joueur prudent :
        si en plus il grimpe jusqu'à la porte au-dessus (geste volontaire, pas
@@ -182,7 +182,7 @@ const LEVELS_SOURCE = [
   {
     id:"l4", name:"Le plafond menteur", difficulty:5, gravity:DEFAULT_GRAVITY,
     playerStart:{x:40,y:372},
-    exit:{x:730,y:350,w:40,h:60},
+    exit:{x:730,y:370,w:40,h:40},
     /* Le saut "évident" au bord de groundA déclenche un plafond qui claque
        au moment exact où le joueur décolle, le renvoyant dans le vide.
        Rien ne le trahit avant : il est invisible et non-solide tant qu'il
