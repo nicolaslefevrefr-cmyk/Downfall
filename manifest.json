@@ -1,7 +1,7 @@
 {
-  "name": "Chute Libre — Trap Platformer",
-  "short_name": "Chute Libre",
-  "description": "Rage/trap platformer à écran fixe : meurs, comprends, recommence.",
+  "name": "Free Fall — Trap Platformer",
+  "short_name": "Free Fall",
+  "description": "Fixed-screen rage/trap platformer: die, learn, retry.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

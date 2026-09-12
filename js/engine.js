@@ -1,11 +1,11 @@
 "use strict";
 /* =========================================================================
    Chute Libre — moteur
-   Interprète les données de niveau (js/levels.js) : physique de plateforme,
-   déclencheurs génériques (trigger), actions (action) et chaînes causales
-   (cascade "then"). Un niveau est reconstruit par clone JSON à chaque
-   tentative : le comportement d'un piège découvert est donc toujours
-   identique (déterminisme).
+   Interprets level data (js/levels.js): platform physics,
+   generic triggers, actions, and causal chains
+   (cascade "then"). A level is rebuilt via a JSON clone on every
+   attempt: a discovered trap's behavior is therefore always
+   identical (determinism).
    ========================================================================= */
 
 let level = null;
@@ -40,12 +40,12 @@ function applyActionStart(obj, action){
       fireCascade(obj);
       break;
     case "REVEAL":
-      /* Rend l'objet visible et restaure sa solidité d'origine — sans
-         jamais forcer "hazard" à true : le danger dépend uniquement de ce
-         qui est coché dans "Dangereux au contact" pour CET objet. Un pic
-         caché est configuré hazard=true dès le départ (mais reste inoffensif
-         tant qu'il est invisible, la vérification de dégât exige les deux) ;
-         un mur normal reste hazard=false et redevient donc un mur normal. */
+      /* Makes the object visible and restores its original solidity —
+         never forcing "hazard" to true: the danger only depends on
+         whatever is checked in "Dangerous on contact" for THIS object. A
+         hidden spike is configured hazard=true from the start (but stays
+         harmless while invisible, since the damage check requires both);
+         a normal wall stays hazard=false and simply goes back to being one. */
       scheduleTimer(action.delay || 0, () => {
         const src = objectsById[obj.id];
         obj.visible = true;
@@ -63,25 +63,26 @@ function applyActionStart(obj, action){
       fireCascade(obj);
       break;
     case "APPEAR_TEMP":
-      /* surgit instantanément (aucun délai avant de bloquer), puis se
-         rétracte après action.ms — un piège qui n'existe pas tant qu'on
-         ne l'a pas provoqué, et disparaît une fois "utilisé". */
+      /* Appears instantly (no delay before blocking), then retracts
+         after action.ms — a trap that doesn't exist until you trigger
+         it, and disappears once "used". */
       obj.visible = true; obj.solid = true;
       scheduleTimer(action.ms || 500, () => { obj.visible = false; obj.solid = false; });
       fireCascade(obj);
       break;
     case "DISABLE":
       /* neutralise silencieusement l'objet cible : il reste "triggered"
-         pour toujours (donc son propre trigger ne se déclenchera plus),
-         mais sans jamais exécuter son action ni sa cascade. */
+         for good (so its own trigger will never fire again), but
+         without ever running its action or cascade. */
       return;
     case "MOVE":
-      /* Chaque MOVE ne pilote QUE l'axe correspondant à sa direction
-         (gauche/droite => X, haut/bas => Y), sans toucher à l'autre axe —
-         deux MOVE sur des axes différents s'additionnent donc en diagonale
-         au lieu de s'annuler. Un second MOVE sur le MÊME axe remplace
-         proprement le premier (comportement attendu). */
+      /* Each MOVE only drives the axis matching its direction
+         (left/right => X, up/down => Y), without touching the other axis —
+         two MOVEs on different axes add up into a diagonal instead of
+         cancelling out. A second MOVE on the SAME axis cleanly replaces
+         cleanly replaces the first (expected behavior). */
       {
+        obj.moveTarget = null; // MOVE_TO and MOVE cut each other off
         const speed = action.speed != null ? action.speed : 100;
         const dir = action.direction || "right";
         const axis = (dir === "left" || dir === "right") ? "x" : "y";
@@ -100,10 +101,27 @@ function applyActionStart(obj, action){
       }
       fireCascade(obj);
       break;
+    case "MOVE_TO":
+      /* Moves the object directly to a given (x,y) position, at a given
+         speed (with optional acceleration) — the duration is derived
+         automatically from the distance to travel, instead of having to
+         calculate it by hand. Takes full control of the object's
+         movement (cancels MOVE if it was active on this object). */
+      obj.moveX = null; obj.moveY = null;
+      obj.moveTarget = {
+        tx: action.x != null ? action.x : obj.x,
+        ty: action.y != null ? action.y : obj.y,
+        speed: action.speed != null ? action.speed : 100,
+        accel: action.acceleration || 0,
+        speedCur: action.acceleration ? 0 : (action.speed != null ? action.speed : 100),
+      };
+      obj.state = "moving";
+      fireCascade(obj);
+      break;
     case "ROTATE":
-      /* rotation visuelle continue (l'hitbox reste axée sur les axes ;
-         la rotation est un effet cosmétique, pas une vraie boîte pivotée).
-         action.duration omis = tourne indéfiniment. */
+      /* continuous visual rotation (the hitbox stays axis-aligned;
+         the rotation is a cosmetic effect, not a real rotated box).
+         action.duration omitted = spins indefinitely. */
       obj.state = "rotating";
       obj.angle = obj.angle || 0;
       obj.rotateSpeed = (action.direction === "ccw" ? -1 : 1) * (action.speed != null ? action.speed : 90);
@@ -120,12 +138,16 @@ function startFalling(obj){
   obj.state = "falling"; obj.solid = false; obj.vy = 0;
   fireCascade(obj);
 }
-/* Actions sur les cibles spéciales SCENE et PLAYER (en plus des objets du
-   niveau). Ni la scène ni le joueur ne sont des objets, donc séparées de
+/* Actions on the special SCENE and PLAYER targets (in addition to level
+   objects). Neither the scene nor the player are objects, so kept separate from
    applyActionStart. */
 function applySceneAction(action){
   if(action.type === "SET_GRAVITY"){
     currentGravity = action.value != null ? action.value : DEFAULT_GRAVITY;
+  } else if(action.type === "SET_SPEED"){
+    currentMoveSpeed = action.value != null ? action.value : DEFAULT_MOVE_SPEED;
+  } else if(action.type === "SET_CONTROLS"){
+    controlsInverted = (action.value === "inverted");
   }
 }
 function applyPlayerAction(action){
@@ -135,7 +157,7 @@ function applyPlayerAction(action){
     player.w = newW;
   } else if(action.type === "CHANGE_HEIGHT"){
     const newH = action.value != null ? action.value : 38;
-    player.y += (player.h - newH); // garde les pieds au même endroit
+    player.y += (player.h - newH); // keeps the feet in the same place
     player.h = newH;
   } else if(action.type === "MOVE"){
     const speed = action.speed != null ? action.speed : 100;
@@ -152,11 +174,11 @@ function applyPlayerAction(action){
   }
 }
 function fireCascade(obj){
-  /* Chaque lien de cascade s'applique indépendamment, même si la cible a
-     déjà reçu une action d'un autre lien (ex : un premier lien qui la fait
-     apparaître, un second qui la fait bouger). `triggered` sert seulement à
-     empêcher le déclencheur PROPRE de la cible de se redéclencher tout
-     seul — il ne doit jamais empêcher une cascade explicite de s'appliquer. */
+  /* Each cascade link applies independently, even if the target has
+     already received an action from another link (e.g. a first link that
+     makes it appear, a second that makes it move). `triggered` only
+     prevents the target's OWN trigger from firing again on its own — it
+     must never block an explicit cascade from being applied. */
   const def = objectsById[obj.id];
   if(!def || !def.trap || !def.trap.then) return;
   for(const link of def.trap.then){
@@ -180,7 +202,7 @@ function checkTrigger(obj){
     case "ON_ENTER": {
       if(!overlap(player, obj)) return false;
       if(!t.fromSide) return true;
-      if(player.prevBox && overlap(player.prevBox, obj)) return false; // déjà dedans, pas une "entrée"
+      if(player.prevBox && overlap(player.prevBox, obj)) return false; // already inside, not an "entry"
       const sides = player.prevBox ? enteredFromSides(player.prevBox, player, obj) : [];
       return sides.includes(t.fromSide);
     }
@@ -191,11 +213,11 @@ function checkTrigger(obj){
   }
 }
 
-/* Boîte de collision effective d'un objet : pour un objet qui tourne, on
-   utilise le rectangle aligné sur les axes qui englobe exactement sa forme
-   pivotée (il grandit/rétrécit avec l'angle). Approximation simple (pas une
-   vraie collision de rectangle orienté), mais cohérente avec le rendu :
-   le joueur peut monter sur une plateforme en rotation. */
+/* An object's effective collision box: for a rotating object, we use the
+   axis-aligned rectangle that exactly bounds its rotated shape (it grows/
+   shrinks with the angle). A simple approximation (not real oriented-
+   rectangle collision), but consistent with the rendering:
+   the player can climb onto a rotating platform. */
 function effectiveBox(o){
   if(o.angle){
     const rad = o.angle * Math.PI/180;
@@ -210,7 +232,7 @@ function effectiveBox(o){
 
 function buildLevel(lv){
   level = lv;
-  objects = clone(lv.objects).map(o => Object.assign({ visible:true, hazard:!!o.hazard, triggered:false, state:"idle" }, o));
+  objects = clone(lv.objects).map(o => Object.assign({ visible:true, hazard:!!o.hazard, triggered:false, state:"idle", pressPhase:0 }, o));
   objectsById = {};
   for(const o of lv.objects) objectsById[o.id] = o;
   player = {
@@ -220,26 +242,28 @@ function buildLevel(lv){
   };
   timers = []; now = 0; mode = "playing"; lastCause = null;
   currentGravity = lv.gravity != null ? lv.gravity : DEFAULT_GRAVITY;
+  currentMoveSpeed = DEFAULT_MOVE_SPEED;
+  controlsInverted = false;
   walkPhase = 0;
   initClouds();
   onLevelBuilt();
 }
 
-/* Résolution de collision combinée (une seule passe par image). Une
-   résolution en deux passes séparées (X puis Y) casse la vitesse
-   horizontale dès que le joueur reste imbriqué verticalement dans un
-   objet d'une image sur l'autre (typiquement juste après avoir cogné un
-   plafond) : la passe X suivante le traite alors à tort comme un mur
-   latéral et annule sa vitesse. Ici, on ne résout que l'axe réellement
-   concerné : arrivée par le haut / par le bas d'abord (cas fréquents,
-   sol et plafond), sinon la pénétration la plus faible (mur). */
+/* Combined collision resolution (a single pass per frame). Resolving in
+   two separate passes (X then Y) breaks horizontal speed as soon as the
+   player stays vertically nested inside an object from one frame to the
+   next (typically right after hitting a ceiling): the following X pass
+   then wrongly treats it as a side wall and cancels its speed. Here, only
+   the axis actually involved is resolved: arrival from above/below first
+   (common cases, floor and ceiling), otherwise the smallest penetration
+   (wall). */
 function resolveCollisions(dt){
-  /* fallSign = sens de la gravité actuelle (1 = normale, -1 = inversée).
-     Toute la résolution ci-dessous est symétrique par rapport à ce signe :
-     avec une gravité inversée, "atterrir" veut dire se coller au DESSOUS
-     d'une plateforme (le sol est au plafond), et le rattrapage de saut
-     s'applique vers une plateforme plus basse (dans le sens opposé à la
-     gravité) plutôt que plus haute. */
+  /* fallSign = direction of current gravity (1 = normal, -1 = inverted).
+     All the resolution below is symmetric with respect to this sign:
+     with inverted gravity, "landing" means sticking to the UNDERSIDE
+     from a platform (the ground is at the ceiling), and the jump catch-up
+     applies toward a lower platform (in the direction opposite to
+     gravity) rather than a higher one. */
   const fallSign = currentGravity >= 0 ? 1 : -1;
   const prevBottom = player.y + player.h;
   const prevTop = player.y;
@@ -248,9 +272,9 @@ function resolveCollisions(dt){
   player.grounded = false; player.groundedOn = null;
 
   for(const o of objects){
-    /* Un objet invisible ne bloque pas physiquement par défaut (sinon un
-       piège qu'on a réussi à éviter continuerait à gêner le joueur) — sauf
-       si "Bloquant même invisible" est explicitement coché. */
+    /* An invisible object doesn't block physically by default (otherwise
+       a trap the player successfully avoided would keep getting in the
+       way) — unless "Solid even hidden" is explicitly checked. */
     if(!o.solid) continue;
     if(o.visible===false && !o.solidWhenHidden) continue;
     const box = effectiveBox(o);
@@ -283,11 +307,11 @@ function resolveCollisions(dt){
     const overlapX = Math.min(player.x+player.w, box.x+box.w) - Math.max(player.x, box.x);
     const overlapY = Math.min(player.y+player.h, box.y+box.h) - Math.max(player.y, box.y);
     if(overlapX < overlapY){
-      /* Aide au pas : mesurée par rapport à la position AVANT le déplacement
-         de cette image (pas après) — à haute vitesse, quelques px de marge
-         peuvent être franchis en une seule image. Seulement pour grimper
-         vers une plateforme nettement plus proche du "plafond effectif"
-         que celle qu'on vient de quitter — jamais pour boucher un petit
+      /* Step-up assist: measured against the position BEFORE this frame's
+         movement (not after) — at high speed, a few px of margin can be
+         crossed in a single frame. Only for climbing
+         toward a platform noticeably closer to the "effective ceiling"
+         than the one just left — never to plug a small
          trou qu'on traverse simplement en marchant. */
       let shortfall, targetIsRaised, movingTowardSurface;
       if(fallSign > 0){
@@ -329,10 +353,10 @@ function resolveCollisions(dt){
   if(player.x < 0) player.x = 0;
   if(player.x + player.w > W) player.x = W - player.w;
 
-  /* Sortie (tube) : solide sur les côtés — bloque comme un mur — mais son
-     dessus (l'ouverture, dans le sens opposé à la gravité) fait gagner dès
-     que le joueur y entre en tombant/sautant dedans. Même logique fallSign
-     que le reste de la fonction, partage prevBottom/prevTop. */
+  /* Exit (pipe): solid on the sides — blocks like a wall — but its top
+     (the opening, in the direction opposite to gravity) wins the level as
+     soon as the player enters it by falling/jumping in. Same fallSign logic
+     as the rest of the function, sharing prevBottom/prevTop. */
   resolveExit(fallSign, prevBottom, prevTop);
 }
 function resolveExit(fallSign, prevBottom, prevTop){
@@ -351,10 +375,10 @@ function resolveExit(fallSign, prevBottom, prevTop){
     if(player.x < e.x) player.x -= overlapX; else player.x += overlapX;
     player.vx = 0;
   } else {
-    /* Un recouvrement vertical profond résolu ici = le joueur atterrit
-       depuis le côté "ouverture" du tube (au-dessus en gravité normale,
-       en-dessous si inversée) : ça fait gagner aussi, pas juste se poser
-       dessus — cohérent avec le raccourci ci-dessus. */
+    /* A deep vertical overlap resolved here = the player is landing from
+       the pipe's "opening" side (above in normal gravity, below if
+       inverted): that wins the level too, not just resolves as standing
+       on it — consistent with the shortcut above. */
     if(fallSign > 0){
       if(player.y < e.y){ onWin(); return; }
       else { player.y += overlapY; player.vy = 0; }
@@ -370,17 +394,17 @@ function update(dt){
   processTimers();
   player.prevBox = { x:player.x, y:player.y, w:player.w, h:player.h };
 
-  /* Objets animés (avant la résolution des collisions, pour que le joueur
-     se tienne sur la position à jour d'une plateforme mobile ce tour-ci). */
+  /* Animated objects (before collision resolution, so the player stands
+     on a moving platform's up-to-date position this frame). */
   for(const o of objects){
     o._lastDX = 0; o._lastDY = 0;
     if(o.state === "falling"){
       o.y += o.fallSpeed * dt;
       if(o.y > H + 100){ o.visible = false; o.dead = true; }
     }
-    /* moveX et moveY sont deux "moteurs" indépendants (un par axe) : une
-       translation horizontale et une translation verticale peuvent tourner
-       EN PARALLÈLE sur le même objet, au lieu de s'écraser l'une l'autre. */
+    /* moveX and moveY are two independent "engines" (one per axis): a
+       a horizontal move and a vertical move can run
+       IN PARALLEL on the same object, instead of overwriting one another. */
     if(o.moveX || o.moveY){
       let dx = 0, dy = 0;
       if(o.moveX){
@@ -393,22 +417,49 @@ function update(dt){
       }
       o.x += dx; o.y += dy; o._lastDX += dx; o._lastDY += dy;
     }
+    /* MOVE_TO: moves in a straight line toward a fixed position, at a given
+       speed (with optional acceleration), and stops exactly on arrival
+       (no overshoot possible even at high speed/low frame rate). */
+    if(o.moveTarget){
+      const mt = o.moveTarget;
+      const ddx = mt.tx - o.x, ddy = mt.ty - o.y;
+      const dist = Math.hypot(ddx, ddy);
+      if(dist < 0.5){
+        o.x = mt.tx; o.y = mt.ty; o.moveTarget = null;
+        if(!o.moveX && !o.moveY) o.state = "idle";
+      } else {
+        mt.speedCur = mt.accel ? approach(mt.speedCur, mt.speed, mt.accel*dt) : mt.speed;
+        const step = mt.speedCur * dt;
+        let sx, sy;
+        if(step >= dist){ o.x = mt.tx; o.y = mt.ty; o.moveTarget = null; if(!o.moveX && !o.moveY) o.state = "idle"; sx=ddx; sy=ddy; }
+        else { const ux = ddx/dist, uy = ddy/dist; sx = ux*step; sy = uy*step; o.x += sx; o.y += sy; }
+        o._lastDX += sx; o._lastDY += sy;
+      }
+    }
     if(o.state === "rotating"){
       o.angle = (o.angle||0) + (o.rotateSpeed||0) * dt;
+    }
+    if(o.kind === "button"){
+      /* Purely visual tracking: sinks while the player covers it,
+         rises back up otherwise — independent of the trigger system
+         (which only fires once via "triggered"). */
+      const pressed = overlap(player, o);
+      o.pressPhase = approach(o.pressPhase || 0, pressed ? 1 : 0, dt / 0.12);
     }
   }
 
   player.vx = (input.right ? 1 : 0) - (input.left ? 1 : 0);
-  player.vx *= MOVE_SPEED;
+  if(controlsInverted) player.vx = -player.vx;
+  player.vx *= currentMoveSpeed;
   if(player.vx > 0) player.facing = 1; else if(player.vx < 0) player.facing = -1;
   walkPhase += Math.abs(player.vx) * dt * 0.15;
   if(Math.abs(player.vx) < 1) walkPhase = 0;
 
   player.justJumped = false;
   if(input.jumpQueued && player.grounded){
-    /* Le saut pousse toujours à l'OPPOSÉ du sens de la gravité actuelle :
-       avec une gravité inversée (on est collé au plafond), sauter pousse
-       vers le bas, pas vers le haut. */
+    /* The jump always pushes OPPOSITE to the direction of current gravity:
+       with inverted gravity (stuck to the ceiling), jumping pushes
+       downward, not upward. */
     player.vy = currentGravity >= 0 ? JUMP_VELOCITY : -JUMP_VELOCITY;
     player.grounded = false; player.groundedOn = null;
     player.justJumped = true;
@@ -416,8 +467,8 @@ function update(dt){
   input.jumpQueued = false;
 
   /* Impulsion externe (action MOVE ciblant PLAYER, cf. applyPlayerAction) :
-     s'ajoute au déplacement piloté par les touches, sans jamais l'écraser —
-     même logique à deux axes indépendants que pour les objets. */
+     adds to the movement driven by the keys, without ever overwriting it —
+     same two-independent-axis logic as for objects. */
   if(player.moveX){
     player.moveX.v = player.moveX.accel ? approach(player.moveX.v, player.moveX.target, player.moveX.accel*dt) : player.moveX.target;
     player.vx += player.moveX.v;
@@ -427,13 +478,14 @@ function update(dt){
     player.vy += player.moveY.v;
   }
 
-  /* Sous-pas physiques : à 240px/s et 60 img/s, une image déplace le joueur
-     de 4px, et son corps fait 26px de large — l'écart réel à traverser sans
-     aucun contact (largeur du trou moins largeur du joueur) est souvent
-     plus petit qu'un seul pas, donc franchi d'un coup avant que la gravité
-     n'ait eu le temps de s'accumuler. Recalculer la gravité et la collision
-     plusieurs fois par image donne une chute d'apparence continue et
-     détecte correctement les petits trous. */
+  /* Physics substeps: at 240px/s and 60 fps, one frame moves the player
+     4px, and their body is 26px wide — the real gap to cross without
+     no contact at all (gap width minus player width) is often
+     smaller than a single step, so it's crossed in one go before gravity
+     has had time to accumulate. Recomputing gravity and collision
+     several times per frame gives a visually continuous fall and
+     several times per frame gives a visually continuous fall and
+     correctly detects small gaps. */
   const SUBSTEPS = 4;
   const subDt = dt / SUBSTEPS;
   for(let s = 0; s < SUBSTEPS; s++){
@@ -443,8 +495,8 @@ function update(dt){
     resolveCollisions(subDt);
   }
 
-  /* Portage : si le joueur est posé sur une plateforme en mouvement, il se
-     déplace avec elle. */
+  /* Carrying: if the player is standing on a moving platform, they move
+     along with it. */
   if(player.grounded && player.groundedOn){
     const platform = objects.find(o => o.id === player.groundedOn);
     if(platform && (platform._lastDX || platform._lastDY)){
@@ -479,11 +531,12 @@ function onDeath(obj){
   }
   if(cause){
     if(p.discovered.indexOf(cause.id) === -1) p.discovered.push(cause.id);
-    lastCause = cause.description || "Un piège t'a eu.";
+    lastCause = cause.description || "A trap got you.";
   } else {
-    lastCause = "Tu es tombé dans le vide.";
+    lastCause = "You fell into the void.";
   }
   saveProgress();
+  spawnDeathExplosion(player.x+player.w/2, player.y+player.h/2);
   onGameOver("dead");
 }
 function onWin(){
@@ -494,6 +547,6 @@ function onWin(){
   onGameOver("won");
 }
 
-/* Hooks implémentés dans main.js (UI/rendu) */
+/* Hooks implemented in main.js (UI/rendering) */
 function onLevelBuilt(){}
 function onGameOver(_result){}

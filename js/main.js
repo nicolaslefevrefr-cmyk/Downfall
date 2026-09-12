@@ -1,21 +1,10 @@
 "use strict";
 /* =========================================================================
-   Chute Libre — interface du jeu, entrées, PWA
-   Le rendu (canvas, dessin des objets) vit dans render.js, partagé avec
-   l'éditeur. Ce fichier ne s'occupe que du jeu lui-même : HUD, tiroir de
-   niveaux, contrôles, overlay de victoire/défaite.
+   Free Fall — game interface, input, PWA
+   Rendering (canvas, drawing objects) lives in render.js, shared with the
+   editor. This file only handles the game itself: HUD, drawer of
    ========================================================================= */
 
-const overlayEl = document.getElementById("overlay");
-const overlayTitle = document.getElementById("overlayTitle");
-const overlayText = document.getElementById("overlayText");
-const overlayBtn = document.getElementById("overlayBtn");
-function showOverlay(title,text,btn){
-  overlayTitle.textContent = title; overlayText.textContent = text; overlayBtn.textContent = btn;
-  overlayEl.classList.add("show");
-}
-function hideOverlay(){ overlayEl.classList.remove("show"); }
-overlayBtn.addEventListener("click", () => { fadeTransition(() => buildLevel(level)); });
 
 const levelNameEl = document.getElementById("levelName");
 const levelDiffEl = document.getElementById("levelDiff");
@@ -32,12 +21,18 @@ const levelMapWrapEl = document.getElementById("levelMapWrap");
 const statsBlockEl = document.getElementById("statsBlock");
 const trapLogEl = document.getElementById("trapLog");
 
-/* Niveaux intégrés dans leur ordre de progression prévu, puis niveaux
-   importés/Firebase triés par identifiant (numérique quand c'est possible —
-   les identifiants de niveau sont tirés aléatoirement à la création, ce
-   qui donne un ordre fixe mais non choisi). */
+/* Built-in levels in their intended progression order, then imported /
+   Firebase levels sorted by identifier (numerically when possible — level
+   identifiers are randomly assigned at creation, which gives a fixed but
+   unchosen order — unless an explicit "order" field overrides it). */
 function orderedLevels(){
   const rest = IMPORTED_LEVELS.concat(FIREBASE_LEVELS).slice().sort((a,b)=>{
+    /* The "order" field (editable from the editor's Organize tab) takes
+       priority over the random numeric identifier, which is only a
+     fallback for levels that have never been reordered. */
+    if(a.order != null && b.order != null) return a.order - b.order;
+    if(a.order != null) return -1;
+    if(b.order != null) return 1;
     const na = parseInt(a.id,10), nb = parseInt(b.id,10);
     if(!isNaN(na) && !isNaN(nb)) return na-nb;
     return String(a.id).localeCompare(String(b.id));
@@ -45,10 +40,10 @@ function orderedLevels(){
   return LEVELS_SOURCE.concat(rest);
 }
 
-/* Carte "serpentin" : les niveaux sont posés en grille de MAP_COLS colonnes,
-   en zigzag (une ligne part de la gauche, la suivante repart de la droite),
-   du bas vers le haut — comme une piste de progression. Un trait courbe
-   relie les cases dans l'ordre, avec un petit arrondi à chaque virage. */
+/* "Snake" map: levels are laid out in a grid of MAP_COLS columns, in a
+   zigzag (one row starts from the left, the next from the right), bottom
+   to top — like a progression trail. A curved line connects the tiles in
+   order, with a small rounded turn at each bend. */
 const MAP_COLS = 3, MAP_NODE = 52, MAP_COLGAP = 96, MAP_ROWGAP = 96, MAP_PAD = 36;
 function nodeCenter(i){
   const row = Math.floor(i / MAP_COLS);
@@ -88,7 +83,7 @@ function renderLevelMap(){
     node.style.left = (c.x - MAP_NODE/2) + "px";
     node.style.top = (y - MAP_NODE/2) + "px";
     node.textContent = state==="locked" ? "🔒" : String(i+1);
-    node.title = lv.name + (state==="locked" ? " (verrouillé)" : "");
+    node.title = lv.name + (state==="locked" ? " (locked)" : "");
     if(unlocked){
       node.addEventListener("click", () => { fadeTransition(() => buildLevel(lv)); closeDrawer(); });
       if(firstUnlockedTop===null || !p.completed) firstUnlockedTop = y;
@@ -96,7 +91,7 @@ function renderLevelMap(){
     levelMapNodesEl.appendChild(node);
   }
 
-  // Trait courbe reliant les cases dans l'ordre, avec un arrondi à chaque virage.
+  // Curved line connecting the tiles in order, with a rounded turn at each bend.
   let d = "";
   if(centers.length){
     d = "M "+centers[0].x+" "+centers[0].y;
@@ -108,7 +103,7 @@ function renderLevelMap(){
   }
   levelMapPathEl.innerHTML = '<path d="'+d+'" fill="none" stroke="#c7cce0" stroke-width="6" stroke-linecap="round"/>';
 
-  // Fait défiler pour montrer le niveau courant / le prochain à jouer.
+  // Scrolls to show the current level / the next one to play.
   const targetY = (function(){
     const idx = levels.findIndex(lv=>lv.id===level.id);
     return idx>=0 ? centers[idx].y : (firstUnlockedTop||contentHeight);
@@ -120,12 +115,12 @@ function renderDrawer(){
   renderLevelMap();
   const p = progress[level.id];
   statsBlockEl.innerHTML =
-    '<div class="statLine"><span>Tentatives (niveau)</span><span>'+p.attempts+'</span></div>'+
-    '<div class="statLine"><span>Pièges découverts</span><span>'+p.discovered.length+'</span></div>'+
-    '<div class="statLine"><span>Niveau terminé</span><span>'+(p.completed?"oui":"non")+'</span></div>';
+    '<div class="statLine"><span>Attempts (level)</span><span>'+p.attempts+'</span></div>'+
+    '<div class="statLine"><span>Traps discovered</span><span>'+p.discovered.length+'</span></div>'+
+    '<div class="statLine"><span>Level completed</span><span>'+(p.completed?"yes":"no")+'</span></div>';
   trapLogEl.innerHTML = "";
   if(!p.discovered.length){
-    trapLogEl.innerHTML = '<div class="trapEmpty">Aucun piège découvert pour l\'instant. Meurs une fois pour commencer à comprendre le niveau.</div>';
+    trapLogEl.innerHTML = '<div class="trapEmpty">No traps discovered yet. Die once to start figuring the level out.</div>';
   } else {
     for(const id of p.discovered){
       const def = level.objects.find(o=>o.id===id);
@@ -146,35 +141,40 @@ document.getElementById("menuBtn").addEventListener("click", openDrawer);
 document.getElementById("closeDrawer").addEventListener("click", closeDrawer);
 drawerBackdrop.addEventListener("click", closeDrawer);
 
-/* Hooks appelés par engine.js */
-function onLevelBuilt(){ hideOverlay(); updateHUD(); }
+/* Hooks called from engine.js */
+function onLevelBuilt(){ updateHUD(); }
 function onGameOver(result){
-  if(result === "dead"){
-    fadeTransition(()=>{}, 160); // petit flash noir au moment de l'impact
-    showOverlay("💀 Perdu", lastCause, "Réessayer");
-  } else {
-    showOverlay("⭐ Niveau terminé", "Réussi en " + progress[level.id].attempts + " tentative(s).", "Rejouer");
-  }
   updateHUD();
+  if(result === "dead"){
+    fadeTransition(()=>{}, 160); // small black flash at the moment of impact
+    setTimeout(() => { fadeTransition(() => buildLevel(level)); }, 700);
+  } else {
+    setTimeout(() => {
+      const levels = orderedLevels();
+      const idx = levels.findIndex(lv => lv.id === level.id);
+      const next = levels[idx+1] || levels[0];
+      fadeTransition(() => buildLevel(next));
+    }, 1100);
+  }
 }
 
-/* ---------------------------- Entrées ---------------------------- */
+/* ---------------------------- Input ---------------------------- */
 window.addEventListener("keydown", (e) => {
-  if(["ArrowLeft","q","Q"].includes(e.key)){ input.left = true; e.preventDefault(); }
+  if(["ArrowLeft","q","Q","a","A"].includes(e.key)){ input.left = true; e.preventDefault(); }
   if(["ArrowRight","d","D"].includes(e.key)){ input.right = true; e.preventDefault(); }
   if(["ArrowUp"," ","w","W","z","Z"].includes(e.key)){ input.jumpQueued = true; e.preventDefault(); }
   if(e.key === "r" || e.key === "R") fadeTransition(() => buildLevel(level));
 });
 window.addEventListener("keyup", (e) => {
-  if(["ArrowLeft","q","Q"].includes(e.key)) input.left = false;
+  if(["ArrowLeft","q","Q","a","A"].includes(e.key)) input.left = false;
   if(["ArrowRight","d","D"].includes(e.key)) input.right = false;
 });
-/* Boutons tactiles : on capture le pointeur au doigt levé/posé plutôt que de
-   se fier à "pointerleave". Sans capture, un minuscule tremblement du doigt
-   qui sort ne serait-ce qu'un pixel du bouton déclenche "pointerleave" et
-   relâche la touche alors que le doigt est toujours posé — c'est la cause la
-   plus fréquente d'un déplacement qui "se bloque" alors qu'on reste appuyé.
-   Avec setPointerCapture, seul un vrai relâchement (pointerup/cancel) compte. */
+/* Touch buttons: capture the pointer on press rather than relying on
+   "pointerleave". Without capture, the tiniest finger tremor that drifts a
+   single pixel outside the button fires "pointerleave" and releases the
+   key while the finger is still down — the most common cause of movement
+   that "sticks" while still pressed. With setPointerCapture, only a real
+   release (pointerup/cancel) counts. */
 function bindHold(el, onDown, onUp){
   el.style.touchAction = "none";
   el.addEventListener("pointerdown", (e) => {
@@ -189,12 +189,12 @@ bindHold(document.getElementById("btnLeft"), () => input.left=true, () => input.
 bindHold(document.getElementById("btnRight"), () => input.right=true, () => input.right=false);
 bindHold(document.getElementById("btnJump"), () => input.jumpQueued=true, () => {});
 
-/* ---------------------------- Import manuel de niveau (JSON) ---------------------------- */
-/* Sert à vérifier qu'un niveau conçu dans l'éditeur se comporte à
-   l'identique une fois chargé ici, dans le vrai jeu — même moteur, mêmes
-   fichiers levels.js/engine.js/render.js. L'intégration Firebase (chargement
-   automatique de tous les niveaux distants) viendra remplacer/compléter
-   ceci plus tard ; pour l'instant l'import est manuel, en local. */
+/* ---------------------------- Manual level import (JSON) ---------------------------- */
+/* Lets you verify that a level designed in the editor behaves identically
+   once loaded here, in the real game — same engine, same
+   levels.js/engine.js/render.js files. Firebase integration (automatic
+   loading of all remote levels) supplements this; import also stays
+   available manually, locally. */
 document.getElementById("btnImportLevel").addEventListener("click", () => {
   document.getElementById("fileImportLevel").click();
 });
@@ -205,39 +205,39 @@ document.getElementById("fileImportLevel").addEventListener("change", (e) => {
   reader.onload = () => {
     try{
       const parsed = JSON.parse(reader.result);
-      /* Accepte un niveau seul (format exporté par l'éditeur), ou par
-         confort un ancien export multi-niveaux ({levels:[...]} ou tableau)
-         dont on ne reprend que le premier niveau. */
+      /* Accepts a single level (the format exported by the editor), or for
+         convenience an older multi-level export ({levels:[...]} or an
+         array), from which only the first level is used. */
       let imported;
       if(Array.isArray(parsed)) imported = parsed[0];
       else if(parsed.levels) imported = parsed.levels[0];
       else imported = parsed;
-      if(!imported || !Array.isArray(imported.objects)) throw new Error("format de niveau inattendu");
+      if(!imported || !Array.isArray(imported.objects)) throw new Error("unexpected level format");
       if(!imported.playerStart) imported.playerStart = {x:40,y:372};
       if(!imported.exit) imported.exit = {x:720,y:360,w:40,h:60};
       if(!imported.difficulty) imported.difficulty = 1;
-      if(!imported.name) imported.name = imported.id || "Niveau importé";
+      if(!imported.name) imported.name = imported.id || "Imported level";
       if(!imported.id) imported.id = "imported"+Date.now();
-      // Évite d'écraser la progression d'un niveau déjà présent (intégré ou déjà importé).
+      // Avoids overwriting the progress of a level that's already present (built-in or already imported).
       const taken = allLevels().some(lv => lv.id === imported.id);
       if(taken) imported.id = imported.id + "-" + Date.now();
       IMPORTED_LEVELS.push(imported);
       ensureLevelProgress(imported.id);
       fadeTransition(() => buildLevel(imported));
       closeDrawer();
-    }catch(err){ alert("Fichier JSON invalide : " + err.message); }
+    }catch(err){ alert("Invalid JSON file: " + err.message); }
   };
   reader.readAsText(file);
   e.target.value = "";
 });
 
-/* ---------------------------- Firebase (chargement des niveaux FINAL) ----------------------------
-   Uniquement piloté par js/firebase-config.js — pas de réglage modifiable
-   depuis l'interface : la seule façon de pointer vers une autre base est de
-   modifier ce fichier directement avant de déployer. */
-/* Charge tous les niveaux marqués "FINAL" sur Firebase et les ajoute à la
-   liste jouable. Silencieux si aucune base n'est configurée, ou en cas
-   d'échec réseau (le jeu reste jouable avec les niveaux intégrés). */
+/* ---------------------------- Firebase (loading FINAL levels) ----------------------------
+   Driven only by js/firebase-config.js — no setting can be changed from
+   the interface: the only way to point at a different database is to
+   edit that file directly before deploying. */
+/* Loads every level marked "FINAL" on Firebase and adds it to the playable
+   list. Silent if no database is configured, or on a network failure (the
+   game stays playable with the built-in levels). */
 async function loadFirebaseFinalLevels(){
   const settings = getFirebaseSettings();
   if(!settings.databaseURL) return 0;
@@ -257,9 +257,9 @@ async function loadFirebaseFinalLevels(){
     return -1;
   }
 }
-/* Au tout premier chargement de la page, si une base est déjà configurée
-   (fichier firebase-config.js ou réglage précédemment enregistré), on
-   récupère les niveaux FINAL sans rien demander à l'utilisateur. */
+/* On the very first page load, if a database is already configured
+   (firebase-config.js file), FINAL levels are fetched without asking the
+   user anything. */
 loadFirebaseFinalLevels();
 
 /* ---------------------------- PWA ---------------------------- */
@@ -267,10 +267,10 @@ if("serviceWorker" in navigator){
   window.addEventListener("load", () => {
     navigator.serviceWorker.register("service-worker.js").catch(() => {});
   });
-  /* Dès qu'une nouvelle version du service worker prend le relais (après
-     un déploiement), on recharge une fois automatiquement — sinon la page
-     ouverte continue d'utiliser les anciens fichiers déjà en mémoire tant
-     qu'on ne rafraîchit pas manuellement. */
+  /* As soon as a new service worker version takes over (after a
+     deployment), the page reloads once automatically — otherwise the page
+     already open keeps using the old files still in memory until
+     until the page is refreshed manually. */
   let swRefreshing = false;
   navigator.serviceWorker.addEventListener("controllerchange", () => {
     if(swRefreshing) return;
@@ -279,10 +279,10 @@ if("serviceWorker" in navigator){
   });
 }
 
-/* Plein écran au premier contact (uniquement quand l'app tourne déjà en
-   PWA installée — inutile et un peu intrusif dans un simple onglet de
-   navigateur, donc on ne le tente pas dans ce cas). L'API Fullscreen exige
-   un geste utilisateur, d'où l'écouteur "une fois" sur la première pression. */
+/* Fullscreen on first contact (only when the app is already running as an
+   installed PWA — pointless and a bit intrusive in a plain browser tab, so
+   it isn't attempted there). The Fullscreen API requires a user gesture,
+   hence the "once" listener on the first press. */
 function isStandalonePwa(){
   return window.matchMedia("(display-mode: standalone)").matches ||
     window.matchMedia("(display-mode: fullscreen)").matches || window.navigator.standalone === true;
@@ -305,10 +305,10 @@ installBtn.addEventListener("click", async () => {
   installBtn.classList.remove("show");
 });
 
-/* ---------------------------- Démarrage ---------------------------- */
-/* Verrouillage de l'orientation en paysage (fonctionne surtout en PWA
-   installée / plein écran). Dans un simple onglet de navigateur, le repli
-   CSS (#rotateOverlay) prend le relais dans tous les cas. */
+/* ---------------------------- Startup ---------------------------- */
+/* Landscape orientation lock (works mainly in an installed PWA / fullscreen).
+   In a plain browser tab, the CSS fallback (#rotateOverlay) takes over
+   regardless. */
 if(matchMedia("(max-width: 900px)").matches && screen.orientation && screen.orientation.lock){
   screen.orientation.lock("landscape").catch(()=>{});
 }

@@ -36,29 +36,13 @@ body{
 }
 canvas{ display:block; width:100%; height:100%; }
 
-/* control bar : ancrée en bas de l'écran par défaut (mode portrait / bureau) */
+/* control bar: anchored to the bottom of the screen by default (portrait / desktop mode) */
 #controlsBar{
   flex:0 0 auto; display:flex; align-items:center; justify-content:space-between;
   padding:10px 18px calc(10px + env(safe-area-inset-bottom));
   background:var(--panel); border-top:1px solid var(--border);
 }
 
-#overlay{
-  position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
-  background:rgba(20,22,36,.42); opacity:0; pointer-events:none; transition:opacity .15s ease;
-}
-#overlay.show{ opacity:1; pointer-events:auto; }
-#overlayCard{
-  background:#fff; border-radius:16px; padding:20px 22px; max-width:86%; text-align:center;
-  box-shadow:var(--shadow);
-}
-#overlayTitle{ margin:0 0 6px; font-size:20px; }
-#overlayText{ margin:0 0 14px; color:var(--muted); font-size:14px; line-height:1.4; }
-#overlayBtn{
-  border:none; background:var(--accent); color:#fff; font-weight:700; font-size:14px;
-  padding:10px 20px; border-radius:10px; cursor:pointer;
-}
-#overlayBtn:active{ background:var(--accent-2); }
 
 .ctrl{
   width:76px; height:76px; border-radius:50%; border:none;
@@ -133,7 +117,7 @@ canvas{ display:block; width:100%; height:100%; }
 .fbStatusMsg.error{ color:var(--danger); }
 .fbStatusMsg.ok{ color:var(--ok); }
 
-/* ---------------------------- Mode paysage forcé ---------------------------- */
+/* ---------------------------- Forced landscape mode ---------------------------- */
 #rotateOverlay{ display:none; }
 @media (orientation: portrait) and (max-width: 900px){
   #rotateOverlay{
@@ -144,10 +128,10 @@ canvas{ display:block; width:100%; height:100%; }
   #app{ display:none; }
 }
 
-/* Contrôles adaptés au paysage : sur un téléphone à l'horizontale, la
-   hauteur d'écran est limitée — la barre de contrôle passe alors en
-   superposition flottante sur les bords du canvas plutôt qu'une bande
-   séparée, pour garder un maximum de hauteur de jeu visible. */
+/* Controls adapted to landscape: on a phone held sideways, screen
+   height is limited — the control bar switches to a floating overlay
+   on the edges of the canvas instead of a separate bar, to keep as
+   much game height visible as possible. */
 @media (orientation: landscape) and (max-height: 500px){
   #controlsBar{
     position:absolute; left:0; right:0; bottom:0; padding:12px 18px calc(10px + env(safe-area-inset-bottom));

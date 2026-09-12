@@ -1,56 +1,58 @@
 "use strict";
 /* =========================================================================
-   Chute Libre — données de niveau (pures, sérialisables)
-   Un niveau ne contient QUE des données : géométrie + définitions de pièges
-   (trigger/action/cascade). L'écran est fixe, la caméra ne bouge jamais.
-   Voir js/engine.js pour l'interprétation générique de ces données.
+   Free Fall — level data (pure, serializable)
+   A level contains ONLY data: geometry + trap definitions
+   (trigger/action/cascade). The screen is fixed, the camera never moves.
+   See js/engine.js for the generic interpretation of this data.
 
-   KITS : chaque piège n'est pas écrit à la main niveau par niveau, mais
-   assemblé par une fonction "kit" paramétrable (position, taille, timing).
-   Un kit renvoie un tableau d'objets prêts à être concaténés dans la liste
-   `objects` d'un niveau — c'est la "tuile réutilisable" : la même fonction
-   Kits.jumpBlocker(...) peut être posée à n'importe quelle coordonnée, dans
-   n'importe quel niveau, avec un bouton de désamorçage propre à chaque pose
-   (identifiants préfixés pour ne jamais entrer en collision entre deux
-   poses du même kit). C'est aussi la structure qu'un LLM générateur de
-   niveaux manipulerait : choisir un kit, lui donner des coordonnées.
+   KITS: each trap isn't hand-written level by level, but assembled by a
+   parameterizable "kit" function (position, size, timing). A kit returns
+   an array of objects ready to be concatenated into a level's `objects`
+   list — it's the "reusable tile": the same Kits.jumpBlocker(...) function
+   can be placed at any coordinate, in any level, with its own disarm
+   button for each placement (prefixed identifiers so two placements of
+   the same kit never collide). This is also the structure an LLM level
+   generator would work with: pick a kit, give it coordinates.
    ========================================================================= */
 
 const W = 800, H = 450;
 const DEFAULT_GRAVITY = 2200;
-const MOVE_SPEED = 240, JUMP_VELOCITY = -620, MAX_FALL = 900;
+const DEFAULT_MOVE_SPEED = 240;
+const JUMP_VELOCITY = -620, MAX_FALL = 900;
+let currentMoveSpeed = DEFAULT_MOVE_SPEED;
+let controlsInverted = false;
 let currentGravity = DEFAULT_GRAVITY;
 let walkPhase = 0;
 const STEP_UP = 14;
 
 const DESC = {
-  FALLING_GENERIC: "Cette plateforme s'effondre peu après que tu marches dessus.",
-  FALLING_B: "B s'effondre peu après l'atterrissage, et sa chute déclenche celle de A.",
-  FALLING_A: "A s'effondre aussi après l'atterrissage — et encore plus vite si B est déjà tombée.",
-  HIDDEN_SPIKE: "Un pic caché se révèle dès que tu poses le pied sur cette zone du sol.",
-  FAKE_DOOR: "Cette porte semblait être la sortie... mais le sol se dérobe juste en dessous.",
-  BUTTON: "Un bouton qui ouvre une porte verrouillée plus loin.",
-  GATE: "Une porte verrouillée qui bloque le passage jusqu'à ce qu'on active le bouton.",
-  JUMP_BLOCKER: "Un plafond invisible claque au moment précis où tu sautes ici, et te fait retomber dans le vide.",
-  DISABLE_BUTTON: "Un bouton caché, à l'écart du chemin évident, qui désactive un piège plus loin.",
+  FALLING_GENERIC: "This platform collapses shortly after you walk on it.",
+  FALLING_B: "B collapses shortly after landing, and its fall triggers A's.",
+  FALLING_A: "A also collapses after landing — even faster if B has already fallen.",
+  HIDDEN_SPIKE: "A hidden spike reveals itself the moment you set foot on this part of the floor.",
+  FAKE_DOOR: "This door looked like the exit... but the floor gives way right underneath it.",
+  BUTTON: "A button that opens a locked gate further along.",
+  GATE: "A locked gate that blocks the way until the button is pressed.",
+  JUMP_BLOCKER: "An invisible ceiling slams shut the instant you jump here, and drops you back into the void.",
+  DISABLE_BUTTON: "A hidden button, off the obvious path, that disarms a trap further along.",
 };
 
-/* ---------------------------- Bibliothèque de kits ---------------------------- */
+/* ---------------------------- Kit library ---------------------------- */
 const Kits = {
-  /** Sol / plateforme fixe, jamais piégée. */
+  /** Fixed floor / platform, never trapped. */
   static(id, x, y, w, h = 40){
     return [{ id, kind:"static", x, y, w, h, solid:true }];
   },
 
-  /** Bloc flottant purement décoratif (même brique qu'un piège, hors de portée
-      normale) : casse l'heuristique "bloc isolé = piège". */
+  /** Purely decorative floating block (same brick as a trap, out of normal
+      reach): breaks the "isolated block = trap" heuristic. */
   decoy(id, x, y, w, h = 18){
     return [{ id, kind:"static", x, y, w, h, solid:true }];
   },
 
-  /** Plateforme qui s'effondre `shakeMs` après l'atterrissage. Si `then` est
-      fourni ({target, delay, shakeMs}), sa chute déclenche à son tour la
-      chute d'une autre plateforme du niveau (chaîne causale). */
+  /** Platform that collapses `shakeMs` after landing. If `then` is
+      provided ({target, delay, shakeMs}), its fall in turn triggers the
+      fall of another platform in the level (causal chain). */
   fallingPlatform(id, x, y, w, { h = 22, shakeMs = 400, fallSpeed = 260, description = DESC.FALLING_GENERIC, then = null } = {}){
     const trap = { trigger:{type:"ON_LAND"}, action:{type:"FALL", shakeMs, fallSpeed} };
     if(then) trap.then = [{ target: then.target, delay: then.delay || 0,
@@ -58,16 +60,16 @@ const Kits = {
     return [{ id, kind:"falling", x, y, w, h, solid:true, description, trap }];
   },
 
-  /** Pic invisible qui se révèle quand le joueur pose le pied dans sa zone. */
+  /** Invisible spike that reveals itself when the player steps into its zone. */
   hiddenSpike(id, x, y, w, { h = 22, revealDelay = 150 } = {}){
     return [{ id, kind:"hidden_spike", x, y, w, h, solid:false, hazard:true, visible:false,
       description: DESC.HIDDEN_SPIKE,
       trap:{ trigger:{type:"ON_ENTER"}, action:{type:"REVEAL", delay: revealDelay} } }];
   },
 
-  /** Porte verrouillée (mur) + bouton (sur une petite plate-forme, à côté)
-      qui l'ouvre. `prefix` évite toute collision d'identifiants si on pose
-      plusieurs portes dans le même niveau. */
+  /** Locked gate (wall) + button (on a small platform, alongside) that
+      opens it. `prefix` avoids any identifier collision when placing
+      several gates in the same level. */
   lockedGate(prefix, { gateX, gateY = 290, gateH = 120, padX, padY = 340, padW = 60, padH = 20 }){
     const gateId = prefix+"_gate", padId = prefix+"_pad", btnId = prefix+"_btn";
     return [
@@ -79,10 +81,10 @@ const Kits = {
     ];
   },
 
-  /** Fausse sortie : une plate-forme "sûre" flottant dans un écart, surmontée
-      d'une porte qui ressemble à la sortie. Toucher la porte (geste
-      volontaire, jamais nécessaire pour avancer) fait disparaître la porte
-      PUIS la plate-forme, `dropDelay` ms plus tard. */
+  /** Fake exit: a "safe" platform floating in a gap, topped with a door
+      that looks like the exit. Touching the door (a deliberate move, never
+      required to progress) makes the platform
+      THEN the platform, `dropDelay` ms later. */
   fakeExit(prefix, { ledgeX, ledgeY, ledgeW, doorX, doorY, doorW, doorH, dropDelay = 150 }){
     const ledgeId = prefix+"_ledge", doorId = prefix+"_door";
     return [
@@ -93,14 +95,14 @@ const Kits = {
     ];
   },
 
-  /** LE PLAFOND MENTEUR — la tuile "saut évident au bord d'un trou" :
-      sauter depuis la zone `sensor` (généralement le dernier tronçon de sol
-      avant le vide) fait instantanément surgir un mur/plafond au-dessus de
-      la trajectoire ; il se rétracte tout seul après `appearMs`. Un bouton
-      posé À L'ÉCART (jamais sur le chemin direct, toujours accessible par
-      un détour) neutralise silencieusement le déclencheur avant même qu'on
-      saute — c'est la garantie de solvabilité. Même kit, ré-utilisable à
-      n'importe quelle position pour poser d'autres "faux sauts" ailleurs. */
+  /** THE LYING CEILING — the "obvious jump at the edge of a gap" tile:
+      jumping from the `sensor` zone (usually the last stretch of floor
+      before the void) instantly makes a wall/ceiling slam shut above the
+      trajectory; it retracts on its own after `appearMs`. A button placed
+      OFF TO THE SIDE (never on the direct path, always reachable via a
+      detour) silently disarms the trigger before you even jump — that's
+      the solvability guarantee. Same kit, reusable at
+      any position to place other "fake jumps" elsewhere. */
   jumpBlocker(prefix, {
     sensorX, sensorY = 372, sensorW = 50, sensorH = 38,
     blockerX, blockerY = 270, blockerW = 100, blockerH = 60, appearMs = 550,
@@ -120,10 +122,10 @@ const Kits = {
         description: DESC.JUMP_BLOCKER, trap:{} },
     ];
   },
-  /** Murs de bordure : ferme le niveau en haut, à gauche et à droite, pour
-      que la seule façon de "sortir" soit de tomber (mort) ou d'atteindre la
-      sortie — jamais de quitter l'écran par un bord. Posés en dernier dans
-      la liste pour apparaître au premier plan sur les coins. */
+  /** Boundary walls: closes off the level at the top, left, and right, so
+      the only way to "leave" is by falling (death) or reaching the exit —
+      never by leaving the screen through an edge. Placed last in
+      the list so it renders on top at the corners. */
   boundaryWalls(thickness = 14){
     return [
       { id:"_boundTop", kind:"gate", x:0, y:0, w:W, h:thickness, solid:true },
@@ -135,7 +137,7 @@ const Kits = {
 
 const LEVELS_SOURCE = [
   {
-    id:"l1", name:"Premier saut", difficulty:1, gravity:DEFAULT_GRAVITY,
+    id:"l1", name:"First Jump", difficulty:1, gravity:DEFAULT_GRAVITY,
     playerStart:{x:40,y:372},
     exit:{x:730,y:370,w:40,h:40},
     objects:[
@@ -147,7 +149,7 @@ const LEVELS_SOURCE = [
     ],
   },
   {
-    id:"l2", name:"Effet domino", difficulty:3, gravity:DEFAULT_GRAVITY,
+    id:"l2", name:"Domino Effect", difficulty:3, gravity:DEFAULT_GRAVITY,
     playerStart:{x:40,y:372},
     exit:{x:730,y:370,w:40,h:40},
     objects:[
@@ -162,14 +164,14 @@ const LEVELS_SOURCE = [
     ],
   },
   {
-    id:"l3", name:"Fausse sortie", difficulty:4, gravity:DEFAULT_GRAVITY,
+    id:"l3", name:"Fake Exit", difficulty:4, gravity:DEFAULT_GRAVITY,
     playerStart:{x:40,y:372},
     exit:{x:730,y:370,w:40,h:40},
-    /* Le vrai chemin traverse l'écart (260->350) en un seul saut direct.
-       Une plateforme "sûre" flotte dans l'écart pour tenter un joueur prudent :
-       si en plus il grimpe jusqu'à la porte au-dessus (geste volontaire, pas
-       requis pour avancer), la porte et la plateforme disparaissent et il
-       tombe dans le vide. Le chemin direct, lui, ne déclenche jamais le piège. */
+    /* The real path crosses the gap (260->350) in a single direct jump.
+       A "safe" platform floats in the gap to tempt a cautious player: if
+       they also climb up to the door above (a deliberate move, not
+       required to progress), the door and the platform disappear and
+       falls into the void. The direct path itself never triggers the trap. */
     objects:[
       ...Kits.static("groundA", 0, 410, 260),
       ...Kits.fakeExit("fake1", { ledgeX:275, ledgeY:330, ledgeW:70, doorX:290, doorY:150, doorW:40, doorH:70 }),
@@ -180,15 +182,15 @@ const LEVELS_SOURCE = [
     ],
   },
   {
-    id:"l4", name:"Le plafond menteur", difficulty:5, gravity:DEFAULT_GRAVITY,
+    id:"l4", name:"The Lying Ceiling", difficulty:5, gravity:DEFAULT_GRAVITY,
     playerStart:{x:40,y:372},
     exit:{x:730,y:370,w:40,h:40},
-    /* Le saut "évident" au bord de groundA déclenche un plafond qui claque
-       au moment exact où le joueur décolle, le renvoyant dans le vide.
-       Rien ne le trahit avant : il est invisible et non-solide tant qu'il
-       n'a pas été provoqué. La seule garantie de passage est le bouton du
-       kit — jamais sur le chemin direct — qui désactive silencieusement
-       le déclencheur du plafond avant même qu'on saute. */
+    /* The "obvious" jump at the edge of groundA triggers a ceiling that
+       slams shut the exact moment the player takes off, sending them back
+       Nothing gives it away beforehand: it's invisible and non-solid until
+       into the void. The only guaranteed way through is the kit's button
+       — never on the direct path — which silently disarms the ceiling's
+       trigger before you even jump. */
     objects:[
       ...Kits.static("groundA", 0, 410, 190),
       ...Kits.jumpBlocker("trap1", {
@@ -209,9 +211,9 @@ function approach(cur, target, maxDelta){
   if(cur > target) return Math.max(cur-maxDelta, target);
   return cur;
 }
-/* Détermine de quel(s) côté(s) une boîte (prevBox) qui ne chevauchait pas
-   `obj` est entrée en chevauchement dans `obj`. Sert au trigger ON_ENTER
-   avec un sens d'entrée requis. */
+/* Determines from which side(s) a box (prevBox) that wasn't overlapping
+   `obj` entered into overlap with `obj`. Used by the ON_ENTER trigger
+   with a required entry direction. */
 function enteredFromSides(prevBox, newBox, obj){
   const sides = [];
   if(prevBox.x+prevBox.w <= obj.x && newBox.x+newBox.w > obj.x) sides.push("left");
@@ -235,14 +237,13 @@ function saveProgress(){ try{ localStorage.setItem(SAVE_KEY, JSON.stringify(prog
 let progress = loadProgress();
 for(const lv of LEVELS_SOURCE) if(!progress[lv.id]) progress[lv.id] = {attempts:0, discovered:[], completed:false};
 
-/* Niveaux importés manuellement (JSON) en plus des niveaux intégrés — sert
-   à vérifier qu'un niveau conçu dans l'éditeur se comporte exactement de
-   la même façon une fois chargé ici, dans le vrai jeu. Purement en mémoire
-   (pas persisté), pour l'intégration Firebase à venir plus tard. */
+/* Manually imported (JSON) levels, in addition to the built-in ones — used
+   to verify that a level designed in the editor behaves exactly the same
+   once loaded here, in the real game. Purely in-memory (not persisted). */
 let IMPORTED_LEVELS = [];
-/* Niveaux chargés automatiquement depuis Firebase au démarrage (ceux dont
-   le statut est "FINAL" — les niveaux "PRODUCTION" ne sont jamais proposés
-   ici, seulement visibles/testables depuis l'éditeur). */
+/* Levels loaded automatically from Firebase at startup (those with
+   status "FINAL" — "PRODUCTION" levels are never offered here, only
+   visible/testable from the editor). */
 let FIREBASE_LEVELS = [];
 function allLevels(){ return LEVELS_SOURCE.concat(IMPORTED_LEVELS).concat(FIREBASE_LEVELS); }
 function ensureLevelProgress(id){

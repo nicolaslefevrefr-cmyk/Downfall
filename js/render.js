@@ -1,19 +1,19 @@
 "use strict";
 /* =========================================================================
-   Chute Libre — rendu partagé (canvas)
-   Ce module ne connaît que l'état exposé par engine.js (level, player,
-   objects, mode, now) et un <canvas id="game">. Il est utilisé tel quel
-   par le jeu (main.js) ET par l'éditeur en mode test, pour garantir un
+   Free Fall — shared rendering (canvas)
+   This module only knows the state exposed by engine.js (level, player,
+   objects, mode, now) and a <canvas id="game">. It's used as-is
+   by the game (main.js) AND by the editor's test mode, to guarantee a
    rendu strictement identique aux deux endroits.
    ========================================================================= */
 
 const canvas = document.getElementById("game");
 const ctx2d = canvas.getContext("2d");
 
-/* Transition en fondu vers/depuis le noir — utilisée par le jeu pour
-   adoucir la mort et les changements de niveau. Neutre par défaut (alpha
-   toujours à 0, aucun effet) tant que fadeTransition() n'est pas appelée ;
-   l'éditeur (qui partage ce fichier pour son mode test) ne l'utilise pas. */
+/* Fade transition to/from black — used by the game to soften death and
+   level changes. Neutral by default (alpha always 0, no effect) until
+   fadeTransition() is called; the editor (which shares this file for its
+   test mode) doesn't use it. */
 let fadeAlpha = 0, fadeDir = 0, fadeSpeed = 0, fadeMidCallback = null;
 function fadeTransition(midCallback, fadeMs){
   fadeSpeed = 1 / ((fadeMs || 220) / 1000);
@@ -61,25 +61,25 @@ function drawRoundedCentered(w,h,r){
   ctx2d.closePath(); ctx2d.fill();
 }
 
-/* Brique rouge homogène : utilisée pour TOUTES les plateformes (sûres et
-   pièges) afin qu'aucun indice visuel ne trahisse un piège avant qu'il ne
-   se déclenche. Le motif est calculé à partir des coordonnées absolues,
-   donc les briques s'alignent naturellement entre objets adjacents. */
-/* Taille de grille du jeu (20px), utilisée pour caler le carrelage des
-   blocs sur les mêmes unités que l'éditeur. */
+/* Uniform red brick: used for ALL platforms (safe and
+   trapped) so that no visual cue gives away a trap before it
+   triggers. The pattern is computed from absolute coordinates,
+   so bricks naturally align between adjacent objects. */
+/* Game grid size (20px), used to align block tiling on the
+   same units as the editor. */
 const GRID_SIZE = 20;
 
-/* Carrelage du bloc Mario (block.png, 16x16 d'origine) mis à l'échelle sur
-   la grille du jeu : autant de tuiles que nécessaire pour couvrir la zone,
-   calées sur des multiples de GRID_SIZE à partir de l'origine du monde
-   (pas du coin de l'objet) pour que des objets adjacents non alignés sur
-   la grille se raccordent quand même visuellement. Tant que l'image n'est
-   pas chargée, on retombe sur l'ancien motif vectoriel (aucun flash blanc). */
-/* Plante piranha : une image par unité de grille de largeur (20px, comme
-   pour les blocs), toutes animées EN MÊME TEMPS via une horloge globale
-   (pas de phase par objet) — change de frame chaque seconde. Ancrées par
-   le bas (elles "poussent" depuis le sol de l'objet, comme les pics
-   avant elles). Repli vectoriel (triangles) tant que l'image ne charge pas. */
+/* Mario block tiling (block.png, 16x16 native) scaled to the
+   game's grid: as many tiles as needed to cover the area,
+   aligned on multiples of GRID_SIZE from the world origin
+   (not the object's corner) so adjacent objects not aligned on
+   the grid still connect visually. While the image isn't
+   loaded yet, falls back to the old vector pattern (no white flash). */
+/* Piranha plant: one image per grid unit of width (20px, like
+   the blocks), all animated AT THE SAME TIME via a shared clock
+   (no per-object phase) — changes frame every second. Anchored at
+   the bottom (they "grow" from the object's ground, like the spikes
+   before them). Vector fallback (triangles) while the image hasn't loaded. */
 function plantFrameIndex(){
   return Math.floor(now/1000) % PLANT_SPRITES.length;
 }
@@ -104,6 +104,43 @@ function drawPlantRow(x,y,w,h){
     const cx = x + i*GRID_SIZE + GRID_SIZE/2;
     ctx2d.drawImage(img, cx-dw/2, y+h-dh, dw, dh);
   }
+}
+
+/* Button (bump.png, 3 frames): sinks progressively according to o.pressPhase
+   (0=released, 1=fully pressed, updated in engine.js). Each
+   frame is drawn at its NATURAL height (scaled to the
+   object's width, not stretched) and anchored at the BOTTOM — it's
+   precisely this height decreasing from one frame to the next that gives
+   the impression of the button sinking, rather than a simple stretch. Falls back to
+   the old rendering (stone + pip) if the image hasn't finished loading. */
+function drawButtonSprite(o){
+  const phase = o.pressPhase || 0;
+  const frames = BUMP_SPRITES;
+  const img = phase < 0.34 ? frames[0] : (phase < 0.67 ? frames[1] : frames[2]);
+  if(!img || !img.complete || !img.naturalWidth){
+    drawStoneBrick(o.x,o.y,o.w,o.h);
+    const cx = o.x+o.w/2, cy = o.y+o.h/2;
+    const r = Math.min(o.w,o.h) * 0.22;
+    ctx2d.fillStyle = phase>0.5 ? "#4f8f6a" : "#8a6a3a";
+    ctx2d.beginPath(); ctx2d.arc(cx,cy,r,0,Math.PI*2); ctx2d.fill();
+    ctx2d.strokeStyle = "rgba(30,20,10,.35)"; ctx2d.lineWidth = 1.5; ctx2d.stroke();
+    return;
+  }
+  ctx2d.imageSmoothingEnabled = false;
+  const scale = o.w / img.naturalWidth;
+  const dw = o.w, dh = img.naturalHeight*scale;
+  ctx2d.drawImage(img, o.x, o.y+o.h-dh, dw, dh);
+}
+
+/* Visual offset (the player's feet "sink" with the button they're
+   pressing) — purely cosmetic, never affects real
+   collision. */
+function playerButtonSinkOffset(){
+  let maxPhase = 0;
+  for(const o of objects){
+    if(o.kind==="button" && o.pressPhase>maxPhase && overlap(player,o)) maxPhase = o.pressPhase;
+  }
+  return maxPhase*8;
 }
 
 function drawBlockTile(x,y,w,h){
@@ -169,9 +206,9 @@ function drawStoneBrick(x,y,w,h){
   ctx2d.restore();
 }
 
-/* Porte : un cadre arrondi + un panneau intérieur + une barre + une
-   poignée, plutôt qu'un simple rectangle bleu. Utilisée à la fois pour la
-   sortie et pour un objet de type "door" (porte-leurre, etc.). */
+/* Door: a rounded frame + an inner panel + a bar + a
+   handle, rather than a plain blue rectangle. Used both for the
+   exit and for a "door"-kind object (decoy door, etc.). */
 function drawDoorShape(x,y,w,h, mainColor, panelColor, knobColor){
   ctx2d.save();
   const r = Math.min(w,h)*0.18;
@@ -240,14 +277,7 @@ function drawObject(o){
       drawDoorShape(o.x,o.y,o.w,o.h, "#3d5af1", "#eef0ff", "#1f2d8a");
       break;
     case "button":
-      drawStoneBrick(o.x,o.y,o.w,o.h);
-      {
-        const cx = o.x+o.w/2, cy = o.y+o.h/2;
-        const r = Math.min(o.w,o.h) * 0.22;
-        ctx2d.fillStyle = o.state==="activated" ? "#4f8f6a" : "#8a6a3a";
-        ctx2d.beginPath(); ctx2d.arc(cx,cy,r,0,Math.PI*2); ctx2d.fill();
-        ctx2d.strokeStyle = "rgba(30,20,10,.35)"; ctx2d.lineWidth = 1.5; ctx2d.stroke();
-      }
+      drawButtonSprite(o);
       break;
     case "gate":
       drawBlockTile(o.x,o.y,o.w,o.h);
@@ -274,10 +304,10 @@ function drawExit(){
   }
 }
 
-/* Personnage joueur : un bonhomme-bâton (tête ronde, tronc, bras, jambes)
-   qui s'anime à la marche et prend une pose différente en l'air — identique
-   au mode test de l'éditeur. (walkPhase vit dans engine.js, mis à jour à
-   chaque frame avec la vitesse du joueur.) */
+/* Player character: a stick figure (round head, torso, arms, legs)
+   that animates while walking and takes a different pose in the air — same
+   as the editor's test mode. (walkPhase lives in engine.js, updated
+   every frame with the player's speed.) */
 function drawStickFigure(w, h, grounded, phase, dead, speedFrac){
   const x = -w/2, y = -h/2;
   const headR = 5;
@@ -310,10 +340,53 @@ function drawStickFigure(w, h, grounded, phase, dead, speedFrac){
     ctx2d.beginPath(); ctx2d.moveTo(midX, hipY); ctx2d.lineTo(midX+9, hipY+8); ctx2d.lineTo(midX+5, footY); ctx2d.stroke();
   }
 }
+/* Player death explosion: small square blocks flying off in
+   every direction and falling with their own gravity (purely
+   visual, independent of currentGravity). The player's sprite stops
+   being drawn once the explosion triggers — the particles
+   replace their presence on screen. */
+let particles = [];
+function spawnDeathExplosion(x,y){
+  particles = [];
+  const colors = ["#e0455c","#8a5a2a","#f0a868","#fff3c4"];
+  for(let i=0;i<14;i++){
+    const angle = Math.random()*Math.PI*2;
+    const speed = 90 + Math.random()*170;
+    particles.push({
+      x, y,
+      vx: Math.cos(angle)*speed,
+      vy: Math.sin(angle)*speed - 120,
+      size: 3 + Math.random()*4,
+      color: colors[Math.floor(Math.random()*colors.length)],
+      life: 1,
+    });
+  }
+}
+function updateParticles(dt){
+  if(!particles.length) return;
+  for(const p of particles){
+    p.vy += 1300*dt;
+    p.x += p.vx*dt; p.y += p.vy*dt;
+    p.life -= dt*0.55;
+  }
+  particles = particles.filter(p => p.life>0 && p.y<H+60);
+}
+function drawParticles(){
+  for(const p of particles){
+    ctx2d.save();
+    ctx2d.globalAlpha = Math.max(0, Math.min(1,p.life));
+    ctx2d.fillStyle = p.color;
+    ctx2d.fillRect(p.x-p.size/2, p.y-p.size/2, p.size, p.size);
+    ctx2d.restore();
+  }
+}
+
 function drawPlayer(){
-  /* Sprite Mario si l'image est chargée, sinon repli sur la silhouette
-     bonhomme-bâton (aucun flash blanc/cassé pendant le chargement). */
+  if(mode==="dead") return; // the sprite gives way to the explosion
+  /* Mario sprite if the image is loaded, otherwise falls back to the
+     stick-figure silhouette (no broken/white flash while loading). */
   const facingRight = player.facing >= 0;
+  const sinkY = playerButtonSinkOffset();
   let img;
   if(!player.grounded){
     img = facingRight ? MARIO_SPRITES.jumpR : MARIO_SPRITES.jumpL;
@@ -326,7 +399,7 @@ function drawPlayer(){
 
   if(!img || !img.complete || !img.naturalWidth){
     ctx2d.save();
-    ctx2d.translate(player.x+player.w/2, player.y+player.h/2);
+    ctx2d.translate(player.x+player.w/2, player.y+player.h/2+sinkY);
     ctx2d.scale(player.facing, currentGravity<0 ? -1 : 1);
     drawStickFigure(player.w, player.h, player.grounded, walkPhase, mode==="dead", Math.min(1, Math.abs(player.vx)/80));
     ctx2d.restore();
@@ -338,23 +411,23 @@ function drawPlayer(){
   ctx2d.save();
   ctx2d.imageSmoothingEnabled = false;
   if(mode==="dead") ctx2d.globalAlpha = 0.55;
-  ctx2d.translate(player.x+player.w/2, player.y+player.h/2);
-  /* La gravité inversée retourne le personnage autour du CENTRE de sa
-     boîte (pas de ses pieds) : ses pieds, dessinés en bas dans le repère
-     non retourné, se retrouvent donc bien en haut — collés au "plafond". */
+  ctx2d.translate(player.x+player.w/2, player.y+player.h/2+sinkY);
+  /* Inverted gravity flips the character around the CENTER of its
+     box (not its feet): its feet, drawn at the bottom in the
+     unflipped frame, therefore end up at the top — stuck to the "ceiling". */
   if(currentGravity<0) ctx2d.scale(1,-1);
   ctx2d.drawImage(img, -dw/2, player.h/2-dh, dw, dh);
   ctx2d.restore();
 }
 
-/* Ne montre que la zone jouable (entre les murs de bordure) : tout le
-   reste (les murs eux-mêmes, et au-delà) reste en noir — comme si les
-   bornes étaient le cadre même de l'écran. Si le niveau n'a pas de murs
-   de bordure, on retombe sur le monde 800x450 entier. */
-/* Ciel + nuages : couleur de fond fixe (sky.png), et 2-3 nuages (parmi 3
-   tailles) placés aléatoirement à chaque niveau, dérivant lentement et
-   TOUS dans le même sens (choisi une fois par niveau) — pas chacun pour
-   soi. Ils bouclent d'un bord à l'autre de l'écran. */
+/* Only shows the playable area (between the boundary walls): everything
+   else (the walls themselves, and beyond) stays black — as if the
+   boundaries were the very frame of the screen. If the level has no
+   boundary walls, falls back to the full 800x450 world. */
+/* Sky + clouds: fixed background color (sky.png), and 2-3 clouds (among 3
+   sizes) placed randomly on each level, drifting slowly and
+   ALL in the same direction (chosen once per level) — not each on its
+   own. They loop from one edge of the screen to the other. */
 let clouds = [];
 let cloudDriftDir = 1;
 function initClouds(){
@@ -369,7 +442,7 @@ function initClouds(){
     });
   }
 }
-const CLOUD_SPEED = 6; // px/s — très lent, homogène pour tous les nuages
+const CLOUD_SPEED = 6; // px/s — very slow, uniform for all clouds
 function updateClouds(dt){
   for(const c of clouds){
     c.x += cloudDriftDir*CLOUD_SPEED*dt;
@@ -392,12 +465,12 @@ function computePlayArea(){
   const x0 = left ? left.x+left.w : 0;
   const y0 = top ? top.y+top.h : 0;
   const x1 = right ? right.x : W;
-  /* Pas de mur de bordure en bas (par design : la chute dans le vide est
-     la façon de mourir, donc rien de solide n'y est jamais posé) — la
-     bande noire du bas est donc purement un recadrage d'affichage. On
-     reprend l'épaisseur du mur du haut pour rester visuellement cohérent
-     avec les trois autres côtés, quelle que soit l'épaisseur choisie par
-     le niveau (le sol continue derrière, comme les murs le font déjà). */
+  /* No boundary wall at the bottom (by design: falling into the void is
+     how you die, so nothing solid is ever placed there) — the bottom
+     black bar is therefore purely a display crop. It reuses the top
+     wall's thickness to stay visually consistent with the other three
+     sides, whatever thickness the level chose (the floor continues
+     behind it, just like the walls already do). */
   const bottomMargin = top ? top.h : (left ? left.w : 20);
   const y1 = H - bottomMargin;
   return { x:x0, y:y0, w:Math.max(1,x1-x0), h:Math.max(1,y1-y0) };
@@ -416,13 +489,14 @@ function render(){
   drawExit();
   for(const o of objects) drawObject(o);
   drawPlayer();
+  drawParticles();
   ctx2d.restore();
   drawFadeOverlay();
 }
 
-/* Boucle de jeu générique, partagée. `loopRunning` permet à l'éditeur de
-   l'arrêter proprement en quittant le mode test (le jeu, lui, ne l'arrête
-   jamais). */
+/* Generic, shared game loop. `loopRunning` lets the editor
+   stop it cleanly when leaving test mode (the game itself never stops
+   it). */
 let loopRunning = true;
 let lastTs = null;
 function frame(ts){
@@ -433,6 +507,7 @@ function frame(ts){
   if(dt > 1/30) dt = 1/30;
   updateFade(dt);
   updateClouds(dt);
+  updateParticles(dt);
   if(mode === "playing") update(dt);
   render();
   requestAnimationFrame(frame);

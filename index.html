@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
@@ -7,16 +7,16 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Chute Libre">
+<meta name="apple-mobile-web-app-title" content="Free Fall">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
-<title>Chute Libre — Trap Platformer</title>
+<title>Free Fall — Trap Platformer</title>
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
 <div id="rotateOverlay">
-  <div>🔄<br>Tourne ton téléphone en mode paysage<br>pour jouer.</div>
+  <div>🔄<br>Rotate your phone to landscape<br>to play.</div>
 </div>
 <div id="app">
   <header id="topbar">
@@ -25,19 +25,12 @@
       <span id="levelName">—</span>
       <span id="levelDiff">—</span>
     </div>
-    <button id="installBtn" class="iconBtn" aria-label="Installer">⬇</button>
+    <button id="installBtn" class="iconBtn" aria-label="Install">⬇</button>
   </header>
 
   <main id="stage">
     <div id="canvasWrap">
       <canvas id="game" width="800" height="450"></canvas>
-      <div id="overlay">
-        <div id="overlayCard">
-          <h2 id="overlayTitle">—</h2>
-          <p id="overlayText">—</p>
-          <button id="overlayBtn">Rejouer</button>
-        </div>
-      </div>
     </div>
   </main>
 
@@ -53,19 +46,19 @@
 <div id="drawerBackdrop"></div>
 <aside id="drawer">
   <button id="closeDrawer" class="iconBtn">✕</button>
-  <h3>Niveaux</h3>
+  <h3>Levels</h3>
   <div id="levelMapWrap">
     <svg id="levelMapPath"></svg>
     <div id="levelMapNodes"></div>
   </div>
-  <button id="btnImportLevel" class="drawerBtn">Importer un niveau (JSON)</button>
+  <button id="btnImportLevel" class="drawerBtn">Import a level (JSON)</button>
   <input id="fileImportLevel" type="file" accept="application/json" hidden>
-  <h3>Statistiques du niveau sélectionné</h3>
+  <h3>Selected level stats</h3>
   <div id="statsBlock"></div>
-  <h3>Pièges découverts</h3>
+  <h3>Traps discovered</h3>
   <div id="trapLog"></div>
-  <h3>Commandes</h3>
-  <p class="hint">Flèches / Q-D : se déplacer · Espace / Haut : sauter · R : recommencer<br>Sur mobile : boutons tactiles en bas de l'écran.</p>
+  <h3>Controls</h3>
+  <p class="hint">Arrows / A-D: move · Space / Up: jump · R: restart<br>On mobile: touch buttons at the bottom of the screen.</p>
 </aside>
 
 <script src="js/firebase-config.js"></script>
