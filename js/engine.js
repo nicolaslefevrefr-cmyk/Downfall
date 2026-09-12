@@ -150,15 +150,25 @@ function applySceneAction(action){
     controlsInverted = (action.value === "inverted");
   }
 }
+/* Largeur/hauteur "de base" du joueur — sert de ratio fixe pour que
+   CHANGE_WIDTH et CHANGE_HEIGHT gardent toujours la boîte de collision
+   cohérente avec ce que montre le sprite (dont l'échelle de rendu suit
+   uniquement player.h) : changer l'une des deux dimensions fait suivre
+   l'autre dans les mêmes proportions, au lieu de les désynchroniser. */
+const PLAYER_BASE_W = 26, PLAYER_BASE_H = 38;
 function applyPlayerAction(action){
   if(action.type === "CHANGE_WIDTH"){
-    const newW = action.value != null ? action.value : 26;
-    player.x += (player.w - newW) / 2; // recentre horizontalement
-    player.w = newW;
-  } else if(action.type === "CHANGE_HEIGHT"){
-    const newH = action.value != null ? action.value : 38;
+    const newW = action.value != null ? action.value : PLAYER_BASE_W;
+    const newH = newW * (PLAYER_BASE_H / PLAYER_BASE_W);
+    player.x += (player.w - newW) / 2; // recenters horizontally
     player.y += (player.h - newH); // keeps the feet in the same place
-    player.h = newH;
+    player.w = newW; player.h = newH;
+  } else if(action.type === "CHANGE_HEIGHT"){
+    const newH = action.value != null ? action.value : PLAYER_BASE_H;
+    const newW = newH * (PLAYER_BASE_W / PLAYER_BASE_H);
+    player.y += (player.h - newH); // keeps the feet in the same place
+    player.x += (player.w - newW) / 2; // recenters horizontally
+    player.w = newW; player.h = newH;
   } else if(action.type === "MOVE"){
     const speed = action.speed != null ? action.speed : 100;
     const dir = action.direction || "right";
@@ -200,15 +210,16 @@ function checkTrigger(obj){
   switch(t.type){
     case "ON_LAND": return player.justLandedOn === obj.id;
     case "ON_ENTER": {
-      if(!overlap(player, obj)) return false;
+      const box = effectiveBox(obj);
+      if(!overlap(player, box)) return false;
       if(!t.fromSide) return true;
-      if(player.prevBox && overlap(player.prevBox, obj)) return false; // already inside, not an "entry"
-      const sides = player.prevBox ? enteredFromSides(player.prevBox, player, obj) : [];
+      if(player.prevBox && overlap(player.prevBox, box)) return false; // already inside, not an "entry"
+      const sides = player.prevBox ? enteredFromSides(player.prevBox, player, box) : [];
       return sides.includes(t.fromSide);
     }
     case "ON_TIMER": return now >= (t.delay || 0);
     case "ON_ATTEMPT": return (progress[level.id].attempts) >= (t.count || 1);
-    case "ON_JUMP": return player.justJumped && overlap(player, obj);
+    case "ON_JUMP": return player.justJumped && overlap(player, effectiveBox(obj));
     default: return false;
   }
 }
@@ -517,7 +528,7 @@ function update(dt){
 
   if(player.y > H + 60){ onDeath(null); return; }
   for(const o of objects){
-    if(o.hazard && o.visible !== false && overlap(player,o)){ onDeath(o); return; }
+    if(o.hazard && o.visible !== false && overlap(player, effectiveBox(o))){ onDeath(o); return; }
   }
 }
 

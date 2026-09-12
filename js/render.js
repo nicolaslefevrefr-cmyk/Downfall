@@ -127,9 +127,10 @@ function drawButtonSprite(o){
     return;
   }
   ctx2d.imageSmoothingEnabled = false;
-  const scale = o.w / img.naturalWidth;
-  const dw = o.w, dh = img.naturalHeight*scale;
-  ctx2d.drawImage(img, o.x, o.y+o.h-dh, dw, dh);
+  const scale = GRID_SIZE / img.naturalWidth;
+  const dw = GRID_SIZE, dh = img.naturalHeight*scale;
+  const cx = o.x + o.w/2;
+  ctx2d.drawImage(img, cx-dw/2, o.y+o.h-dh, dw, dh);
 }
 
 /* Visual offset (the player's feet "sink" with the button they're
@@ -390,7 +391,7 @@ function drawPlayer(){
   let img;
   if(!player.grounded){
     img = facingRight ? MARIO_SPRITES.jumpR : MARIO_SPRITES.jumpL;
-  } else if(Math.abs(player.vx) > 5){
+  } else if(input.left || input.right){
     const set = facingRight ? MARIO_SPRITES.walkR : MARIO_SPRITES.walkL;
     img = set[Math.floor(walkPhase*0.6) % set.length];
   } else {
