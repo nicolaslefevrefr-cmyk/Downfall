@@ -300,6 +300,7 @@ function resolveCollisions(dt){
   const prevBottom = player.y + player.h;
   const prevTop = player.y;
   const prevY = player.y; // vertical span BEFORE this frame's own vertical move, for the wall pass below
+  const wasGrounded = player.grounded; // before the reset below — gates step-up to actual walking
   player.grounded = false; player.groundedOn = null;
 
   player.x += player.vx * dt;
@@ -308,13 +309,22 @@ function resolveCollisions(dt){
   /* ---------------------------- 1. Vertical landing ---------------------------- */
   /* Ceiling/floor bump from the "wrong" side (jumping into the underside
      of a platform, or — with inverted gravity — falling into the topside
-     of one) — kept box-based (full width): unlike landing, there is no
-     "walked past the edge, still bumps" ambiguity to worry about here. */
+     of one) — kept box-based (full width), but with a horizontally
+     NARROWED check (each side pulled 25% of the half-width toward the
+     center): using the player's exact corners here made a jump fail
+     whenever a platform directly above was offset by just a mismatched
+     pixel or two, since the corner would clip it long before the player
+     was meaningfully "under" it. Landing itself still uses the full body
+     via the point-based check below — this narrowing only concerns
+     bumping your head. */
+  const bumpInset = (player.w/2) * 0.25;
+  const bumpLeft = player.x + bumpInset, bumpRight = player.x + player.w - bumpInset;
   for(const o of objects){
     if(!o.solid) continue;
     if(o.visible === false && !o.solidWhenHidden) continue;
     const box = effectiveBox(o);
-    if(!overlap(player, box)) continue;
+    if(bumpRight <= box.x || bumpLeft >= box.x+box.w) continue;
+    if(player.y >= box.y+box.h || player.y+player.h <= box.y) continue;
     if(fallSign > 0){
       if(player.vy < 0 && prevTop >= box.y + box.h - 2){
         player.y = box.y + box.h; player.vy = 0;
@@ -387,7 +397,7 @@ function resolveCollisions(dt){
       shortfall = (box.y + box.h) - prevTop;
       targetIsRaised = player.lastGroundY == null || (box.y + box.h) > player.lastGroundY + 2;
     }
-    if(targetIsRaised && shortfall > 0 && shortfall <= STEP_UP){
+    if(wasGrounded && targetIsRaised && shortfall > 0 && shortfall <= STEP_UP){
       if(fallSign > 0){ player.y = box.y - player.h; player.lastGroundY = box.y; }
       else { player.y = box.y + box.h; player.lastGroundY = box.y + box.h; }
       player.vy = 0; player.grounded = true; player.groundedOn = o.id;
@@ -404,15 +414,20 @@ function resolveCollisions(dt){
       else if(player.x + player.w/2 > box.x + box.w - minCenterInside) player.x = box.x + box.w - minCenterInside - player.w/2;
       continue;
     }
-    /* shortfall <= 0 means the player's near edge is already AT or ABOVE
-       this object's near surface — there's nothing left to step up onto
-       or bump sideways into here (that's either "resting exactly on top
-       of it", which the landing pass above already handles, or "still
-       airborne above it"). Without this, a player standing at exactly a
-       step's height kept getting treated as hitting its side the instant
-       shortfall dropped to 0 — freezing them in place right after
-       successfully climbing it. */
-    if(shortfall <= 0) continue;
+    /* shortfall <= STEP_UP (but not eligible for the walking step-up
+       above — airborne, or not actually raised) means the player is still
+       within a small climbable band of this object's near surface: never
+       treat that as a wall. Without `wasGrounded` restricting step-up to
+       actual walking, this same band used to also let a player who'd
+       jumped OVER a platform and was still a few px above it get yanked
+       straight down onto it the instant they drifted sideways into its
+       x-range — a "magnet" snapping them down instead of letting gravity
+       carry them the rest of the way naturally. Now: skip entirely, and
+       let the point-based landing pass alone decide when they've actually
+       arrived. shortfall <= 0 (already at or above the surface — either
+       resting exactly on it, already handled above, or still airborne
+       above it) is included in this same band. */
+    if(shortfall <= STEP_UP) continue;
     if(player.x < box.x) player.x = box.x - player.w; else player.x = box.x + box.w;
     player.vx = 0;
   }

@@ -155,15 +155,25 @@ function drawButtonSprite(o){
    same fixed BUTTON_FRAME_H targets used for drawing, so the offset can
    never exceed the actual visual compression of the sprite (at most
    20-12=8px), and the player always lines up with the real drawn surface. */
+/* Visual offset for the player while standing on a button: the button
+   itself pokes up from the platform it sits on (its footprint occupies
+   the space right above the platform's surface, filled edge-to-edge when
+   released) and shrinks toward that surface as it's pressed — so the
+   player should appear RAISED by however tall the button currently is,
+   never lower. This keeps them visibly above the solid platform's real
+   surface at all times (at least BUTTON_FRAME_H's shortest, pressed
+   value), instead of the earlier version which added a downward offset
+   on top of their already-correct standing height, sinking them below
+   the platform they were actually standing on. */
 function playerButtonSinkOffset(){
-  let maxSink = 0;
+  let maxH = 0;
   for(const o of objects){
-    if(o.kind!=="button" || !(o.pressPhase>0) || !overlap(player,o)) continue;
-    const idx = buttonFrameIndexForPhase(o.pressPhase);
-    const sink = BUTTON_FRAME_H[0] - BUTTON_FRAME_H[idx];
-    if(sink > maxSink) maxSink = sink;
+    if(o.kind!=="button" || !overlap(player,o)) continue;
+    const idx = buttonFrameIndexForPhase(o.pressPhase || 0);
+    const h = BUTTON_FRAME_H[idx];
+    if(h > maxH) maxH = h;
   }
-  return maxSink;
+  return -maxH;
 }
 
 function drawBlockTile(x,y,w,h){
