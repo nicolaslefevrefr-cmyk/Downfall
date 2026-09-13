@@ -272,93 +272,149 @@ function resolveCollisions(dt){
   /* fallSign = direction of current gravity (1 = normal, -1 = inverted).
      All the resolution below is symmetric with respect to this sign:
      with inverted gravity, "landing" means sticking to the UNDERSIDE
-     from a platform (the ground is at the ceiling), and the jump catch-up
+     of a platform (the ground is at the ceiling), and the jump catch-up
      applies toward a lower platform (in the direction opposite to
-     gravity) rather than a higher one. */
+     gravity) rather than a higher one.
+
+     Both axes move FIRST, with no blocking yet — then two separate,
+     purpose-built checks resolve them, in this order:
+       1. VERTICAL landing — decided purely by a single point, the
+          player's bottom-center (top-center with inverted gravity), using
+          this frame's ALREADY-UPDATED x. The moment that point is no
+          longer above solid ground, they fall; they land again only once
+          that same point reaches a surface.
+       2. HORIZONTAL walls — full-body edge overlap, as expected of a
+          wall — but skipping whatever object the point above just landed
+          on, so a platform can never simultaneously "catch" the player
+          and shove them sideways the same frame.
+     Checking landing with the frame's final x (rather than checking
+     horizontal and vertical against each other's pre-move position) is
+     what actually fixes the ambiguous cases a single combined pass, and
+     an earlier two-pass attempt, both still produced: freezing mid-air
+     crossing a gap between same-height platforms, being shoved backward
+     off a platform already mostly walked onto, or — worst — a wall's
+     full-body edge "winning the race" against the landing point while
+     falling in at a shallow angle, turning a clean landing into a
+     sideways shove. */
   const fallSign = currentGravity >= 0 ? 1 : -1;
   const prevBottom = player.y + player.h;
   const prevTop = player.y;
-  player.x += player.vx * dt;
-  player.y += player.vy * dt;
+  const prevY = player.y; // vertical span BEFORE this frame's own vertical move, for the wall pass below
   player.grounded = false; player.groundedOn = null;
 
-  for(const o of objects){
-    /* An invisible object doesn't block physically by default (otherwise
-       a trap the player successfully avoided would keep getting in the
-       way) — unless "Solid even hidden" is explicitly checked. */
-    if(!o.solid) continue;
-    if(o.visible===false && !o.solidWhenHidden) continue;
-    const box = effectiveBox(o);
-    if(!overlap(player,box)) continue;
+  player.x += player.vx * dt;
+  player.y += player.vy * dt;
 
+  /* ---------------------------- 1. Vertical landing ---------------------------- */
+  /* Ceiling/floor bump from the "wrong" side (jumping into the underside
+     of a platform, or — with inverted gravity — falling into the topside
+     of one) — kept box-based (full width): unlike landing, there is no
+     "walked past the edge, still bumps" ambiguity to worry about here. */
+  for(const o of objects){
+    if(!o.solid) continue;
+    if(o.visible === false && !o.solidWhenHidden) continue;
+    const box = effectiveBox(o);
+    if(!overlap(player, box)) continue;
     if(fallSign > 0){
-      if(player.vy >= 0 && prevBottom <= box.y + 2){
-        player.y = box.y - player.h; player.vy = 0;
-        player.grounded = true; player.groundedOn = o.id; player.lastGroundY = box.y;
-        continue;
-      }
       if(player.vy < 0 && prevTop >= box.y + box.h - 2){
         player.y = box.y + box.h; player.vy = 0;
         player.lastBump = { id:o.id, t: now };
-        continue;
       }
     } else {
-      if(player.vy <= 0 && prevTop >= box.y + box.h - 2){
-        player.y = box.y + box.h; player.vy = 0;
-        player.grounded = true; player.groundedOn = o.id; player.lastGroundY = box.y + box.h;
-        continue;
-      }
       if(player.vy > 0 && prevBottom <= box.y + 2){
         player.y = box.y - player.h; player.vy = 0;
         player.lastBump = { id:o.id, t: now };
-        continue;
       }
     }
+  }
 
-    const overlapX = Math.min(player.x+player.w, box.x+box.w) - Math.max(player.x, box.x);
-    const overlapY = Math.min(player.y+player.h, box.y+box.h) - Math.max(player.y, box.y);
-    if(overlapX < overlapY){
-      /* Step-up assist: measured against the position BEFORE this frame's
-         movement (not after) — at high speed, a few px of margin can be
-         crossed in a single frame. Only for climbing
-         toward a platform noticeably closer to the "effective ceiling"
-         than the one just left — never to plug a small
-         trou qu'on traverse simplement en marchant. */
-      let shortfall, targetIsRaised, movingTowardSurface;
-      if(fallSign > 0){
-        shortfall = prevBottom - box.y;
-        targetIsRaised = player.lastGroundY == null || box.y < player.lastGroundY - 2;
-        movingTowardSurface = player.vy >= 0;
-      } else {
-        shortfall = (box.y + box.h) - prevTop;
-        targetIsRaised = player.lastGroundY == null || (box.y + box.h) > player.lastGroundY + 2;
-        movingTowardSurface = player.vy <= 0;
-      }
-      if(targetIsRaised && shortfall > 0 && shortfall <= STEP_UP && movingTowardSurface){
-        if(fallSign > 0){ player.y = box.y - player.h; player.lastGroundY = box.y; }
-        else { player.y = box.y + box.h; player.lastGroundY = box.y + box.h; }
-        player.vy = 0; player.grounded = true; player.groundedOn = o.id;
-      } else {
-        if(player.x < box.x) player.x -= overlapX; else player.x += overlapX;
-        player.vx = 0;
-      }
-    } else {
-      if(fallSign > 0){
-        if(player.y < box.y){
-          player.y -= overlapY; player.vy = 0; player.grounded = true; player.groundedOn = o.id; player.lastGroundY = box.y;
-        } else {
-          player.y += overlapY; player.vy = 0;
-          player.lastBump = { id:o.id, t: now };
-        }
-      } else {
-        if(player.y + player.h > box.y + box.h){
-          player.y += overlapY; player.vy = 0; player.grounded = true; player.groundedOn = o.id; player.lastGroundY = box.y + box.h;
-        } else {
-          player.y -= overlapY; player.vy = 0;
-          player.lastBump = { id:o.id, t: now };
-        }
+  /* Landing: driven ENTIRELY by the player's bottom-center point, using
+     the x they've ALREADY moved to this frame. Among every solid object
+     whose horizontal span contains that point, pick whichever surface
+     the point has just reached or crossed (the closest one in the
+     direction of travel) — not just "any box the full body overlaps".
+     Walking off an edge means this point simply finds no more candidates
+     the next frame, and gravity takes over. */
+  const footX = player.x + player.w/2;
+  const footY = fallSign > 0 ? player.y + player.h : player.y;
+  const fallingThisFrame = fallSign > 0 ? player.vy >= 0 : player.vy <= 0;
+  let landedOnId = null;
+  if(fallingThisFrame){
+    let bestSurface = null, bestObj = null;
+    const catchWindow = Math.max(6, Math.abs(player.vy*dt) + 2);
+    for(const o of objects){
+      if(!o.solid) continue;
+      if(o.visible === false && !o.solidWhenHidden) continue;
+      const box = effectiveBox(o);
+      if(footX < box.x || footX > box.x + box.w) continue;
+      const surfaceY = fallSign > 0 ? box.y : box.y + box.h;
+      const reached = fallSign > 0
+        ? (footY >= surfaceY - 0.5 && footY <= surfaceY + catchWindow)
+        : (footY <= surfaceY + 0.5 && footY >= surfaceY - catchWindow);
+      if(!reached) continue;
+      if(bestSurface === null || (fallSign > 0 ? surfaceY < bestSurface : surfaceY > bestSurface)){
+        bestSurface = surfaceY; bestObj = o;
       }
     }
+    if(bestObj){
+      if(fallSign > 0) player.y = bestSurface - player.h; else player.y = bestSurface;
+      player.vy = 0; player.grounded = true; player.groundedOn = bestObj.id; player.lastGroundY = bestSurface;
+      landedOnId = bestObj.id;
+    }
+  }
+
+  /* ---------------------------- 2. Horizontal walls + step-up ---------------------------- */
+  for(const o of objects){
+    if(!o.solid) continue;
+    if(o.visible === false && !o.solidWhenHidden) continue;
+    if(o.id === landedOnId) continue; // just landed on it this very frame — never also a wall
+    const box = effectiveBox(o);
+    const hOverlap = player.x < box.x+box.w && player.x+player.w > box.x;
+    const vOverlap = prevY < box.y+box.h && prevY+player.h > box.y;
+    if(!hOverlap || !vOverlap) continue;
+
+    /* Step-up assist: only for climbing toward a platform noticeably
+       closer to the "effective ceiling" than the one just left (a jump
+       that's just barely too short) — never to plug a small gap crossed
+       simply by walking, and never for a platform at the same height
+       (that's not a step, that's the far side of a gap, already handled
+       above by the vertical pass). */
+    let shortfall, targetIsRaised;
+    if(fallSign > 0){
+      shortfall = prevBottom - box.y;
+      targetIsRaised = player.lastGroundY == null || box.y < player.lastGroundY - 2;
+    } else {
+      shortfall = (box.y + box.h) - prevTop;
+      targetIsRaised = player.lastGroundY == null || (box.y + box.h) > player.lastGroundY + 2;
+    }
+    if(targetIsRaised && shortfall > 0 && shortfall <= STEP_UP){
+      if(fallSign > 0){ player.y = box.y - player.h; player.lastGroundY = box.y; }
+      else { player.y = box.y + box.h; player.lastGroundY = box.y + box.h; }
+      player.vy = 0; player.grounded = true; player.groundedOn = o.id;
+      /* Also nudge the player's CENTER just inside the step's x-range:
+         without this, the point-based landing pass above (which runs
+         BEFORE this horizontal pass, using the not-yet-updated x) won't
+         recognize this same surface as supporting them on the very next
+         substep — grounded gets reset, gravity nudges them down a hair,
+         and since lastGroundY now already equals this step's own height,
+         a retried step-up no longer reads as "raised" either. Net result
+         without this nudge: stuck oscillating at the step's edge forever. */
+      const minCenterInside = 1;
+      if(player.x + player.w/2 < box.x + minCenterInside) player.x = box.x + minCenterInside - player.w/2;
+      else if(player.x + player.w/2 > box.x + box.w - minCenterInside) player.x = box.x + box.w - minCenterInside - player.w/2;
+      continue;
+    }
+    /* shortfall <= 0 means the player's near edge is already AT or ABOVE
+       this object's near surface — there's nothing left to step up onto
+       or bump sideways into here (that's either "resting exactly on top
+       of it", which the landing pass above already handles, or "still
+       airborne above it"). Without this, a player standing at exactly a
+       step's height kept getting treated as hitting its side the instant
+       shortfall dropped to 0 — freezing them in place right after
+       successfully climbing it. */
+    if(shortfall <= 0) continue;
+    if(player.x < box.x) player.x = box.x - player.w; else player.x = box.x + box.w;
+    player.vx = 0;
   }
 
   if(player.x < 0) player.x = 0;
@@ -369,31 +425,6 @@ function resolveCollisions(dt){
      soon as the player enters it by falling/jumping in. Same fallSign logic
      as the rest of the function, sharing prevBottom/prevTop. */
   resolveExit(fallSign, prevBottom, prevTop);
-
-  /* Chute au centre plutôt qu'au coin arrière : la résolution ci-dessus
-     considère le joueur "posé" tant qu'UNE PARTIE de sa boîte chevauche
-     encore une surface solide — ce qui, en marchant vers une falaise,
-     revient à exiger que le coin ARRIÈRE atteigne le vide avant de tomber
-     (le corps peut alors déborder visuellement dans le vide avant de
-     chuter, ce qui est gênant). On corrige ça en vérifiant, après coup, si
-     le POINT CENTRAL du joueur est toujours au-dessus d'un support — sinon
-     on retire "grounded" même si la boîte complète chevauche encore. */
-  if(player.grounded){
-    const centerX = player.x + player.w/2;
-    const checkY = fallSign > 0 ? player.y + player.h + 1 : player.y - 1;
-    let supported = false;
-    for(const o of objects){
-      if(!o.solid) continue;
-      if(o.visible === false && !o.solidWhenHidden) continue;
-      const box = effectiveBox(o);
-      if(centerX >= box.x && centerX <= box.x+box.w && checkY >= box.y && checkY <= box.y+box.h){ supported = true; break; }
-    }
-    if(!supported){
-      const e = level.exit;
-      if(centerX >= e.x && centerX <= e.x+e.w && checkY >= e.y && checkY <= e.y+e.h) supported = true;
-    }
-    if(!supported){ player.grounded = false; player.groundedOn = null; }
-  }
 }
 function resolveExit(fallSign, prevBottom, prevTop){
   const e = level.exit;
