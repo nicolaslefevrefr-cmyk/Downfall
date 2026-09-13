@@ -29,6 +29,28 @@ body{
 #installBtn{ display:none; }
 #installBtn.show{ display:flex; }
 
+/* PWA installée : le bandeau du haut disparaît, l'écran entier devient le
+   jeu. Le nom du niveau et le bouton menu restent accessibles via un
+   petit overlay flottant sur le canvas, plutôt qu'une vraie barre qui
+   grignoterait de la hauteur de jeu précieuse. */
+body.pwa-standalone #topbar{ display:none; }
+#pwaOverlay{
+  display:none; position:absolute; top:10px; left:10px; right:10px; z-index:10;
+  align-items:center; justify-content:space-between; gap:8px; pointer-events:none;
+}
+body.pwa-standalone #pwaOverlay{ display:flex; }
+#pwaLevelName{
+  background:rgba(20,22,36,.55); color:#fff; font-weight:700; font-size:13px;
+  padding:6px 12px; border-radius:10px; white-space:nowrap; overflow:hidden;
+  text-overflow:ellipsis; max-width:70%; pointer-events:none;
+}
+#pwaMenuBtn{
+  width:36px; height:36px; border-radius:10px; border:none;
+  background:rgba(20,22,36,.55); color:#fff; font-size:16px; display:flex;
+  align-items:center; justify-content:center; cursor:pointer; pointer-events:auto;
+}
+#pwaMenuBtn:active{ background:rgba(20,22,36,.75); }
+
 #stage{ flex:1; display:flex; align-items:center; justify-content:center; padding:10px; min-height:0; }
 #canvasWrap{
   position:relative; width:100%; max-width:920px; max-height:100%; aspect-ratio:800/450;

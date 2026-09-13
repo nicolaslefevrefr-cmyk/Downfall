@@ -113,35 +113,58 @@ function drawPlantRow(x,y,w,h){
    precisely this height decreasing from one frame to the next that gives
    the impression of the button sinking, rather than a simple stretch. Falls back to
    the old rendering (stone + pip) if the image hasn't finished loading. */
+/* One frame per grid unit of width (like the block/plant tiling), all
+   segments sharing the SAME pressPhase — pressing one segment presses the
+   whole button object at once, since they're all just the visual tiling
+   of a single logical button. */
+function buttonFrameForPhase(phase){
+  return phase < 0.34 ? BUMP_SPRITES[0] : (phase < 0.67 ? BUMP_SPRITES[1] : BUMP_SPRITES[2]);
+}
 function drawButtonSprite(o){
   const phase = o.pressPhase || 0;
-  const frames = BUMP_SPRITES;
-  const img = phase < 0.34 ? frames[0] : (phase < 0.67 ? frames[1] : frames[2]);
+  const img = buttonFrameForPhase(phase);
+  const n = Math.max(1, Math.round(o.w / GRID_SIZE));
   if(!img || !img.complete || !img.naturalWidth){
-    drawStoneBrick(o.x,o.y,o.w,o.h);
-    const cx = o.x+o.w/2, cy = o.y+o.h/2;
-    const r = Math.min(o.w,o.h) * 0.22;
-    ctx2d.fillStyle = phase>0.5 ? "#4f8f6a" : "#8a6a3a";
-    ctx2d.beginPath(); ctx2d.arc(cx,cy,r,0,Math.PI*2); ctx2d.fill();
-    ctx2d.strokeStyle = "rgba(30,20,10,.35)"; ctx2d.lineWidth = 1.5; ctx2d.stroke();
+    const cw = o.w / n;
+    for(let i=0; i<n; i++){
+      const sx = o.x + i*cw;
+      drawStoneBrick(sx, o.y, cw, o.h);
+      const cx = sx+cw/2, cy = o.y+o.h/2, r = Math.min(cw,o.h) * 0.22;
+      ctx2d.fillStyle = phase>0.5 ? "#4f8f6a" : "#8a6a3a";
+      ctx2d.beginPath(); ctx2d.arc(cx,cy,r,0,Math.PI*2); ctx2d.fill();
+      ctx2d.strokeStyle = "rgba(30,20,10,.35)"; ctx2d.lineWidth = 1.5; ctx2d.stroke();
+    }
     return;
   }
   ctx2d.imageSmoothingEnabled = false;
   const scale = GRID_SIZE / img.naturalWidth;
   const dw = GRID_SIZE, dh = img.naturalHeight*scale;
-  const cx = o.x + o.w/2;
-  ctx2d.drawImage(img, cx-dw/2, o.y+o.h-dh, dw, dh);
+  for(let i=0; i<n; i++){
+    const cx = o.x + i*GRID_SIZE + GRID_SIZE/2;
+    ctx2d.drawImage(img, cx-dw/2, o.y+o.h-dh, dw, dh);
+  }
 }
 
 /* Visual offset (the player's feet "sink" with the button they're
-   pressing) — purely cosmetic, never affects real
-   collision. */
+   pressing) — purely cosmetic, never affects real collision. Computed from
+   the ACTUAL sprite geometry (how much shorter the current frame is than
+   the released one) rather than a guessed constant, so the player lines
+   up with the real drawn surface of the button at any press phase. */
 function playerButtonSinkOffset(){
-  let maxPhase = 0;
+  const img0 = BUMP_SPRITES[0];
+  if(!img0.complete || !img0.naturalWidth) return 0;
+  const scale = GRID_SIZE / img0.naturalWidth;
+  const dh0 = img0.naturalHeight * scale;
+  let maxSink = 0;
   for(const o of objects){
-    if(o.kind==="button" && o.pressPhase>maxPhase && overlap(player,o)) maxPhase = o.pressPhase;
+    if(o.kind!=="button" || !(o.pressPhase>0) || !overlap(player,o)) continue;
+    const imgCur = buttonFrameForPhase(o.pressPhase);
+    if(!imgCur.complete || !imgCur.naturalWidth) continue;
+    const dhCur = imgCur.naturalHeight * scale;
+    const sink = dh0 - dhCur; // matches whichever frame is actually drawn right now
+    if(sink > maxSink) maxSink = sink;
   }
-  return maxPhase*8;
+  return maxSink;
 }
 
 function drawBlockTile(x,y,w,h){

@@ -8,10 +8,12 @@
 
 const levelNameEl = document.getElementById("levelName");
 const levelDiffEl = document.getElementById("levelDiff");
+const pwaLevelNameEl = document.getElementById("pwaLevelName");
 function stars(n){ return "★".repeat(n) + "☆".repeat(5-n); }
 function updateHUD(){
   levelNameEl.textContent = level.name;
   levelDiffEl.textContent = stars(level.difficulty);
+  pwaLevelNameEl.textContent = level.name;
   renderDrawer();
 }
 
@@ -138,6 +140,7 @@ const drawerBackdrop = document.getElementById("drawerBackdrop");
 function openDrawer(){ drawerEl.classList.add("open"); drawerBackdrop.classList.add("show"); renderDrawer(); }
 function closeDrawer(){ drawerEl.classList.remove("open"); drawerBackdrop.classList.remove("show"); }
 document.getElementById("menuBtn").addEventListener("click", openDrawer);
+document.getElementById("pwaMenuBtn").addEventListener("click", openDrawer);
 document.getElementById("closeDrawer").addEventListener("click", closeDrawer);
 drawerBackdrop.addEventListener("click", closeDrawer);
 
@@ -146,7 +149,6 @@ function onLevelBuilt(){ updateHUD(); }
 function onGameOver(result){
   updateHUD();
   if(result === "dead"){
-    fadeTransition(()=>{}, 160); // small black flash at the moment of impact
     setTimeout(() => { fadeTransition(() => buildLevel(level)); }, 700);
   } else {
     setTimeout(() => {
@@ -287,6 +289,12 @@ function isStandalonePwa(){
   return window.matchMedia("(display-mode: standalone)").matches ||
     window.matchMedia("(display-mode: fullscreen)").matches || window.navigator.standalone === true;
 }
+/* Installed PWA: the top bar (menu, level name, install button) is
+   pointless real estate — the whole screen becomes the game, with the
+   level name and menu button folded into a small floating overlay
+   instead (see #pwaOverlay in the CSS/HTML). A plain browser tab keeps
+   the normal top bar. */
+if(isStandalonePwa()) document.body.classList.add("pwa-standalone");
 if(isStandalonePwa() && document.documentElement.requestFullscreen){
   const tryFullscreen = () => {
     document.documentElement.requestFullscreen().catch(() => {});

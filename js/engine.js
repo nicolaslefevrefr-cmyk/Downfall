@@ -369,6 +369,31 @@ function resolveCollisions(dt){
      soon as the player enters it by falling/jumping in. Same fallSign logic
      as the rest of the function, sharing prevBottom/prevTop. */
   resolveExit(fallSign, prevBottom, prevTop);
+
+  /* Chute au centre plutôt qu'au coin arrière : la résolution ci-dessus
+     considère le joueur "posé" tant qu'UNE PARTIE de sa boîte chevauche
+     encore une surface solide — ce qui, en marchant vers une falaise,
+     revient à exiger que le coin ARRIÈRE atteigne le vide avant de tomber
+     (le corps peut alors déborder visuellement dans le vide avant de
+     chuter, ce qui est gênant). On corrige ça en vérifiant, après coup, si
+     le POINT CENTRAL du joueur est toujours au-dessus d'un support — sinon
+     on retire "grounded" même si la boîte complète chevauche encore. */
+  if(player.grounded){
+    const centerX = player.x + player.w/2;
+    const checkY = fallSign > 0 ? player.y + player.h + 1 : player.y - 1;
+    let supported = false;
+    for(const o of objects){
+      if(!o.solid) continue;
+      if(o.visible === false && !o.solidWhenHidden) continue;
+      const box = effectiveBox(o);
+      if(centerX >= box.x && centerX <= box.x+box.w && checkY >= box.y && checkY <= box.y+box.h){ supported = true; break; }
+    }
+    if(!supported){
+      const e = level.exit;
+      if(centerX >= e.x && centerX <= e.x+e.w && checkY >= e.y && checkY <= e.y+e.h) supported = true;
+    }
+    if(!supported){ player.grounded = false; player.groundedOn = null; }
+  }
 }
 function resolveExit(fallSign, prevBottom, prevTop){
   const e = level.exit;
@@ -451,10 +476,11 @@ function update(dt){
       o.angle = (o.angle||0) + (o.rotateSpeed||0) * dt;
     }
     if(o.kind === "button"){
-      /* Purely visual tracking: sinks while the player covers it,
-         rises back up otherwise — independent of the trigger system
-         (which only fires once via "triggered"). */
-      const pressed = overlap(player, o);
+      /* Purely visual tracking: sinks while the player covers it, rises
+         back up otherwise — EXCEPT once the button's own trigger has
+         fired ("triggered"), in which case it stays pressed for good,
+         matching a real button that's been pushed in. */
+      const pressed = o.triggered || overlap(player, o);
       o.pressPhase = approach(o.pressPhase || 0, pressed ? 1 : 0, dt / 0.12);
     }
   }
