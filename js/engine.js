@@ -94,8 +94,15 @@ function applyActionStart(obj, action){
         obj.state = "moving";
         if(action.duration){
           scheduleTimer(action.duration, () => {
-            if(axis === "x") obj.moveX = null; else obj.moveY = null;
-            if(!obj.moveX && !obj.moveY) obj.state = "idle";
+            /* Only clear if THIS exact mover is still the one driving the
+               axis — if a later action (another MOVE, or a MOVE_TO) has
+               since taken over, this stale cleanup must never touch it,
+               or a delayed cascade link timed to land right as this
+               duration expires could have its target position corrupted
+               by a cleanup step that's no longer relevant. */
+            if(axis === "x"){ if(obj.moveX === mover) obj.moveX = null; }
+            else { if(obj.moveY === mover) obj.moveY = null; }
+            if(!obj.moveX && !obj.moveY && !obj.moveTarget) obj.state = "idle";
           });
         }
       }
