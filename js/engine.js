@@ -248,6 +248,42 @@ function effectiveBox(o){
   return o;
 }
 
+/* The Y-range a rotated object's TRUE (visual) shape actually occupies at
+   one specific world X — used so the player lands on the rotated
+   rectangle itself, not on empty space inside its axis-aligned bounding
+   box. Without this, standing on a spinning platform meant landing on
+   effectiveBox()'s corners too, which stick out well past the visibly
+   rotated shape at anything other than a right angle — the player looked
+   like they were floating on thin air half the time. Returns null if the
+   vertical line at worldX misses the rotated shape entirely (so the
+   landing pass correctly finds no support there, same as walking off a
+   normal platform's edge). For an unrotated object this reduces to the
+   ordinary box.y / box.y+box.h, so it's safe to use unconditionally. */
+function rotatedYRangeAt(o, worldX){
+  if(!o.angle){
+    if(worldX < o.x || worldX > o.x+o.w) return null;
+    return { yTop:o.y, yBottom:o.y+o.h };
+  }
+  const rad = o.angle * Math.PI/180;
+  const cosr = Math.cos(rad), sinr = Math.sin(rad);
+  const cx = o.x+o.w/2, cy = o.y+o.h/2, hw = o.w/2, hh = o.h/2;
+  const corner = (lx,ly) => ({ x: cx+lx*cosr-ly*sinr, y: cy+lx*sinr+ly*cosr });
+  const c1=corner(-hw,-hh), c2=corner(hw,-hh), c3=corner(hw,hh), c4=corner(-hw,hh);
+  const edges = [[c1,c2],[c2,c3],[c3,c4],[c4,c1]];
+  let yTop = Infinity, yBottom = -Infinity, found = false;
+  for(const [a,b] of edges){
+    if((a.x<=worldX && worldX<=b.x) || (b.x<=worldX && worldX<=a.x)){
+      if(a.x === b.x) continue; // vertical edge — parallel to the query line, no single crossing point
+      const t = (worldX-a.x)/(b.x-a.x);
+      const y = a.y + t*(b.y-a.y);
+      found = true;
+      if(y<yTop) yTop=y;
+      if(y>yBottom) yBottom=y;
+    }
+  }
+  return found ? { yTop, yBottom } : null;
+}
+
 function buildLevel(lv){
   level = lv;
   objects = clone(lv.objects).map(o => Object.assign({ visible:true, hazard:!!o.hazard, triggered:false, state:"idle", pressPhase:0 }, o));
@@ -326,20 +362,30 @@ function resolveCollisions(dt){
      bumping your head. */
   const bumpInset = (player.w/2) * 0.25;
   const bumpLeft = player.x + bumpInset, bumpRight = player.x + player.w - bumpInset;
+  const bumpCenter = (bumpLeft+bumpRight)/2;
   for(const o of objects){
     if(!o.solid) continue;
     if(o.visible === false && !o.solidWhenHidden) continue;
-    const box = effectiveBox(o);
-    if(bumpRight <= box.x || bumpLeft >= box.x+box.w) continue;
-    if(player.y >= box.y+box.h || player.y+player.h <= box.y) continue;
+    /* Sampled at the same 3 points (narrowed left/center/right) against
+       the object's TRUE rotated shape rather than its bounding box — for
+       an unrotated object this is identical to the old box check, but a
+       spinning platform's underside no longer bumps the player against
+       empty bounding-box space past its visibly rotated edge. */
+    let hitRange = null;
+    for(const sx of [bumpLeft, bumpCenter, bumpRight]){
+      const r = rotatedYRangeAt(o, sx);
+      if(r){ hitRange = r; break; }
+    }
+    if(!hitRange) continue;
+    if(player.y >= hitRange.yBottom || player.y+player.h <= hitRange.yTop) continue;
     if(fallSign > 0){
-      if(player.vy < 0 && prevTop >= box.y + box.h - 2){
-        player.y = box.y + box.h; player.vy = 0;
+      if(player.vy < 0 && prevTop >= hitRange.yBottom - 2){
+        player.y = hitRange.yBottom; player.vy = 0;
         player.lastBump = { id:o.id, t: now };
       }
     } else {
-      if(player.vy > 0 && prevBottom <= box.y + 2){
-        player.y = box.y - player.h; player.vy = 0;
+      if(player.vy > 0 && prevBottom <= hitRange.yTop + 2){
+        player.y = hitRange.yTop - player.h; player.vy = 0;
         player.lastBump = { id:o.id, t: now };
       }
     }
@@ -362,9 +408,9 @@ function resolveCollisions(dt){
     for(const o of objects){
       if(!o.solid) continue;
       if(o.visible === false && !o.solidWhenHidden) continue;
-      const box = effectiveBox(o);
-      if(footX < box.x || footX > box.x + box.w) continue;
-      const surfaceY = fallSign > 0 ? box.y : box.y + box.h;
+      const range = rotatedYRangeAt(o, footX);
+      if(!range) continue;
+      const surfaceY = fallSign > 0 ? range.yTop : range.yBottom;
       const reached = fallSign > 0
         ? (footY >= surfaceY - 0.5 && footY <= surfaceY + catchWindow)
         : (footY <= surfaceY + 0.5 && footY >= surfaceY - catchWindow);
