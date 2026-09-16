@@ -344,6 +344,7 @@ function resolveCollisions(dt){
   const prevTop = player.y;
   const prevY = player.y; // vertical span BEFORE this frame's own vertical move, for the wall pass below
   const wasGrounded = player.grounded; // before the reset below — gates step-up to actual walking
+  const wasGroundedOnId = player.grounded ? player.groundedOn : null;
   player.grounded = false; player.groundedOn = null;
 
   player.x += player.vx * dt;
@@ -411,9 +412,31 @@ function resolveCollisions(dt){
       const range = rotatedYRangeAt(o, footX);
       if(!range) continue;
       const surfaceY = fallSign > 0 ? range.yTop : range.yBottom;
-      const reached = fallSign > 0
-        ? (footY >= surfaceY - 0.5 && footY <= surfaceY + catchWindow)
-        : (footY <= surfaceY + 0.5 && footY >= surfaceY - catchWindow);
+      /* The object the player was ALREADY standing on gets a much more
+         generous window, scaled to how far they've just moved
+         horizontally: walking across a sloped (rotated) surface changes
+         its height under their feet every frame — sometimes by more than
+         gravity alone would ever account for in one frame — and without
+         this, the strict catchWindow below (sized only for a normal
+         vertical fall) kept missing that change, dropping the player into
+         a free-fall they'd only recover from once ordinary gravity caught
+         back up, feeling like being flung off the platform they were
+         plainly still walking on. Every OTHER object keeps the original,
+         tighter asymmetric check (barely any tolerance for "hasn't
+         reached it yet", generous only for "already past it slightly") —
+         that asymmetry is what makes falling trigger right at the
+         center-point edge instead of the far corner. */
+      let reached;
+      if(o.id === wasGroundedOnId){
+        const window = Math.max(catchWindow, Math.abs(player.vx*dt)*1.5 + 10);
+        reached = fallSign > 0
+          ? (footY >= surfaceY - window && footY <= surfaceY + window)
+          : (footY <= surfaceY + window && footY >= surfaceY - window);
+      } else {
+        reached = fallSign > 0
+          ? (footY >= surfaceY - 0.5 && footY <= surfaceY + catchWindow)
+          : (footY <= surfaceY + 0.5 && footY >= surfaceY - catchWindow);
+      }
       if(!reached) continue;
       if(bestSurface === null || (fallSign > 0 ? surfaceY < bestSurface : surfaceY > bestSurface)){
         bestSurface = surfaceY; bestObj = o;
@@ -431,6 +454,16 @@ function resolveCollisions(dt){
     if(!o.solid) continue;
     if(o.visible === false && !o.solidWhenHidden) continue;
     if(o.id === landedOnId) continue; // just landed on it this very frame — never also a wall
+    /* Rotated objects never act as a horizontal wall or step. Walking off
+       a rotated platform's edge is already correctly handled by the
+       point-based landing pass above (rotatedYRangeAt returns null once
+       the player's foot clears the true shape, same as any ledge) — but
+       this box-based wall check, still using the AABB, doesn't know that:
+       for anything other than a right angle the AABB reaches well past
+       the visible shape, so it kept shoving the player sideways to the
+       AABB's edge the moment they tried to walk on a tilted platform,
+       even mid-surface, nowhere near its actual boundary. */
+    if(o.angle) continue;
     const box = effectiveBox(o);
     const hOverlap = player.x < box.x+box.w && player.x+player.w > box.x;
     const vOverlap = prevY < box.y+box.h && prevY+player.h > box.y;
