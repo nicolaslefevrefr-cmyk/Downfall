@@ -58,6 +58,16 @@ body.pwa-standalone #pwaOverlay{ display:flex; }
 }
 canvas{ display:block; width:100%; height:100%; }
 
+/* Installed PWA: the canvas is deliberately shown SMALLER than the
+   available space, leaving a visible black margin on every side (rather
+   than stretching edge-to-edge) — set here rather than for every context,
+   since a plain browser tab keeps the normal light background and full-
+   bleed sizing. */
+body.pwa-standalone #stage{ background:#000; padding:14px; }
+body.pwa-standalone #canvasWrap{
+  max-width:88%; max-height:88%; border-radius:10px; box-shadow:none;
+}
+
 /* control bar: anchored to the bottom of the screen by default (portrait / desktop mode) */
 #controlsBar{
   flex:0 0 auto; display:flex; align-items:center; justify-content:space-between;
@@ -67,14 +77,27 @@ canvas{ display:block; width:100%; height:100%; }
 
 
 .ctrl{
-  width:76px; height:76px; border-radius:50%; border:none;
-  background:#eef0fb; color:#2a2d3d; font-size:30px;
+  width:88px; height:88px; border-radius:50%; border:none;
+  background:#eef0fb; color:#2a2d3d; font-size:34px;
   display:flex; align-items:center; justify-content:center; box-shadow:0 2px 6px rgba(30,34,60,.10);
+  pointer-events:none; /* the wrapping .ctrlHit owns all touch handling — see below */
 }
-.ctrl:active{ background:#dde1f7; }
 .dpad{ display:flex; gap:16px; }
 .ctrlJump{ background:var(--accent); color:#fff; }
-.ctrlJump:active{ background:var(--accent-2); }
+/* The visible button (.ctrl) is deliberately smaller than its actual
+   touch target: .ctrlHit is an invisible, larger hit zone around it (a
+   "tolerance zone"), so a finger landing just outside the drawn circle —
+   very common in the heat of play, and the main cause of presses that
+   silently didn't register — still counts. Each hit zone captures its
+   OWN pointer by id on press, independently of the others, so holding
+   left/right and jump at once (multi-touch) works reliably instead of
+   one touch's move events being misread as belonging to another finger. */
+.ctrlHit{
+  width:112px; height:112px; display:flex; align-items:center; justify-content:center;
+  touch-action:none;
+}
+.ctrlHit:active .ctrl{ background:#dde1f7; }
+.ctrlHit:active .ctrlJump{ background:var(--accent-2); }
 
 #drawerBackdrop{
   position:fixed; inset:0; background:rgba(15,17,30,.35); opacity:0; pointer-events:none;
@@ -156,15 +179,16 @@ canvas{ display:block; width:100%; height:100%; }
    much game height visible as possible. */
 @media (orientation: landscape) and (max-height: 500px){
   #controlsBar{
-    position:absolute; left:0; right:0; bottom:0; padding:12px 18px calc(10px + env(safe-area-inset-bottom));
+    position:absolute; left:0; right:0; bottom:0; padding:8px 14px calc(6px + env(safe-area-inset-bottom));
     background:none; border:none; pointer-events:none; z-index:5;
   }
-  #controlsBar .dpad, #controlsBar .ctrlJump{ pointer-events:auto; }
+  #controlsBar .ctrlHit{ pointer-events:auto; }
   .ctrl{
-    width:60px; height:60px; font-size:24px;
-    background:rgba(238,240,251,.75); backdrop-filter:blur(2px);
+    width:76px; height:76px; font-size:28px;
+    background:rgba(238,240,251,.78); backdrop-filter:blur(2px);
   }
-  .ctrlJump{ background:rgba(61,90,241,.8); }
+  .ctrlHit{ width:96px; height:96px; }
+  .ctrlJump{ background:rgba(61,90,241,.82); }
   #stage{ padding:6px; }
 }
 

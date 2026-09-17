@@ -176,20 +176,38 @@ window.addEventListener("keyup", (e) => {
    single pixel outside the button fires "pointerleave" and releases the
    key while the finger is still down — the most common cause of movement
    that "sticks" while still pressed. With setPointerCapture, only a real
-   release (pointerup/cancel) counts. */
+   release (pointerup/cancel) counts.
+   Each button tracks its OWN pointerId explicitly (rather than just
+   trusting whichever pointer event arrives) so that holding several
+   buttons down at once with different fingers is genuinely independent —
+   a release event from one finger can never be mistaken for another's,
+   which is what multi-touch "sticking" or one button eating another's
+   release usually came down to. lostpointercapture is also listened for
+   as a safety net: a few mobile browsers can drop capture (e.g. a system
+   gesture stealing focus) without ever firing pointerup/pointercancel,
+   which would otherwise leave a button stuck "held" forever. */
 function bindHold(el, onDown, onUp){
   el.style.touchAction = "none";
+  let activePointerId = null;
   el.addEventListener("pointerdown", (e) => {
     e.preventDefault();
+    if(activePointerId !== null) return; // this button already has an active finger
+    activePointerId = e.pointerId;
     if(el.setPointerCapture) el.setPointerCapture(e.pointerId);
     onDown();
   });
-  el.addEventListener("pointerup", onUp);
-  el.addEventListener("pointercancel", onUp);
+  const release = (e) => {
+    if(e.pointerId !== activePointerId) return; // a different finger's event — not this button's
+    activePointerId = null;
+    onUp();
+  };
+  el.addEventListener("pointerup", release);
+  el.addEventListener("pointercancel", release);
+  el.addEventListener("lostpointercapture", release);
 }
-bindHold(document.getElementById("btnLeft"), () => input.left=true, () => input.left=false);
-bindHold(document.getElementById("btnRight"), () => input.right=true, () => input.right=false);
-bindHold(document.getElementById("btnJump"), () => input.jumpQueued=true, () => {});
+bindHold(document.getElementById("hitLeft"), () => input.left=true, () => input.left=false);
+bindHold(document.getElementById("hitRight"), () => input.right=true, () => input.right=false);
+bindHold(document.getElementById("hitJump"), () => input.jumpQueued=true, () => {});
 
 /* ---------------------------- Manual level import (JSON) ---------------------------- */
 /* Lets you verify that a level designed in the editor behaves identically

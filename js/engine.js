@@ -137,6 +137,14 @@ function applyActionStart(obj, action){
       }
       fireCascade(obj);
       break;
+    case "SET_FRICTION":
+      /* Only ever matters while this block is tilted (see the sliding
+         logic in update()) — 1 (full grip) is the default for every
+         block that never explicitly sets one, so this action is the only
+         way to make a specific block slippery. */
+      obj.friction = action.value != null ? Math.max(0, Math.min(1, action.value)) : 0;
+      fireCascade(obj);
+      break;
     default:
       fireCascade(obj);
   }
@@ -293,6 +301,7 @@ function buildLevel(lv){
     x: lv.playerStart.x, y: lv.playerStart.y, w:26, h:38,
     vx:0, vy:0, grounded:false, groundedOn:null, prevGroundedOn:null, justLandedOn:null,
     justJumped:false, lastBump:null, lastGroundY:null, prevBox:null, moveX:null, moveY:null, facing:1,
+    slideVx:0,
   };
   timers = []; now = 0; mode = "playing"; lastCause = null;
   currentGravity = lv.gravity != null ? lv.gravity : DEFAULT_GRAVITY;
@@ -440,6 +449,46 @@ function resolveCollisions(dt){
       if(!reached) continue;
       if(bestSurface === null || (fallSign > 0 ? surfaceY < bestSurface : surfaceY > bestSurface)){
         bestSurface = surfaceY; bestObj = o;
+      }
+    }
+    /* The rotating (or already-standing-on) platform's edge can sweep
+       past the player's exact footX between one frame and the next —
+       rotation changes a shape's footprint at any given world X
+       independently of the player's own movement, so even the generous
+       window above cannot help once rotatedYRangeAt finds nothing AT ALL
+       there. Only for the platform just walked on: search a small
+       neighborhood around footX for the nearest point the shape still
+       covers, and nudge the player those few px sideways to match — the
+       alternative (falling straight through a briefly-vanished edge,
+       mid-stride, for no visible reason) is exactly the "right at that
+       angle, the player falls" bug this is fixing. */
+    if(!bestObj && wasGroundedOnId){
+      const o = objects.find(x => x.id === wasGroundedOnId);
+      /* Restricted to ROTATED objects only: a normal, non-rotating
+         platform's edge is fixed, so if the player's center-point has
+         genuinely walked past it, that's a real edge — the whole point of
+         the center-based fall fix from earlier. Searching a neighborhood
+         there would wrongly resurrect the old "falls only once the WHOLE
+         body clears the edge" behavior for ordinary platforms. */
+      if(o && o.angle && o.solid && !(o.visible === false && !o.solidWhenHidden)){
+        const searchStep = 2, maxSearch = 48;
+        let found = null, foundX = null;
+        for(let d = searchStep; d <= maxSearch && found === null; d += searchStep){
+          for(const sx of [footX - d, footX + d]){
+            const range = rotatedYRangeAt(o, sx);
+            if(!range) continue;
+            const surfaceY = fallSign > 0 ? range.yTop : range.yBottom;
+            const window = Math.max(catchWindow, Math.abs(player.vx*dt)*1.5 + 10);
+            const reached2 = fallSign > 0
+              ? (footY >= surfaceY - window && footY <= surfaceY + window)
+              : (footY <= surfaceY + window && footY >= surfaceY - window);
+            if(reached2){ found = surfaceY; foundX = sx; break; }
+          }
+        }
+        if(found !== null){
+          bestSurface = found; bestObj = o;
+          player.x += (foundX - footX);
+        }
       }
     }
     if(bestObj){
@@ -646,6 +695,31 @@ function update(dt){
     player.moveY.v = player.moveY.accel ? approach(player.moveY.v, player.moveY.target, player.moveY.accel*dt) : player.moveY.target;
     player.vy += player.moveY.v;
   }
+
+  /* Sliding on a tilted (rotated) block: gravity's component ALONG the
+     slope's surface accelerates the player sideways, resisted by that
+     block's own friction (1 = full grip, no sliding at all — the
+     default, so every existing level keeps behaving exactly as before;
+     0 = frictionless, slides as fast as physics allows). Purely additive
+     on top of the player's own walking speed, exactly like the MOVE
+     impulse above — holding a direction still works against it. Grip is
+     regained instantly once back on a flat (or high-friction) surface;
+     this never simulates momentum carrying over after leaving the slope. */
+  if(player.grounded && player.groundedOn){
+    const slidePlatform = objects.find(o => o.id === player.groundedOn);
+    if(slidePlatform && slidePlatform.angle){
+      const rad = slidePlatform.angle * Math.PI/180;
+      const friction = slidePlatform.friction != null ? slidePlatform.friction : 1;
+      const slideAccel = currentGravity * Math.sin(rad) * Math.cos(rad) * (1 - friction);
+      const maxSlide = 600;
+      player.slideVx = Math.max(-maxSlide, Math.min(maxSlide, player.slideVx + slideAccel * dt));
+    } else {
+      player.slideVx = 0;
+    }
+  } else {
+    player.slideVx = 0;
+  }
+  player.vx += player.slideVx;
 
   /* Physics substeps: at 240px/s and 60 fps, one frame moves the player
      4px, and their body is 26px wide — the real gap to cross without

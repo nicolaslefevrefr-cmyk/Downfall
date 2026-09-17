@@ -491,31 +491,17 @@ function drawClouds(){
   }
 }
 
-function computePlayArea(){
-  const top = objects.find(o=>o.id==="_boundTop");
-  const left = objects.find(o=>o.id==="_boundLeft");
-  const right = objects.find(o=>o.id==="_boundRight");
-  const x0 = left ? left.x+left.w : 0;
-  const y0 = top ? top.y+top.h : 0;
-  const x1 = right ? right.x : W;
-  /* No boundary wall at the bottom (by design: falling into the void is
-     how you die, so nothing solid is ever placed there) — the bottom
-     black bar is therefore purely a display crop. It reuses the top
-     wall's thickness to stay visually consistent with the other three
-     sides, whatever thickness the level chose (the floor continues
-     behind it, just like the walls already do). */
-  const bottomMargin = top ? top.h : (left ? left.w : 20);
-  const y1 = H - bottomMargin;
-  return { x:x0, y:y0, w:Math.max(1,x1-x0), h:Math.max(1,y1-y0) };
-}
-
 function render(){
   ctx2d.clearRect(0,0,W,H);
   ctx2d.fillStyle = "#000";
   ctx2d.fillRect(0,0,W,H);
   ctx2d.save();
-  const area = computePlayArea();
-  ctx2d.beginPath(); ctx2d.rect(area.x,area.y,area.w,area.h); ctx2d.clip();
+  /* Renders the FULL level world (0,0,W,H), boundary walls included — they
+     used to be clipped out of view entirely (drawn, then hidden behind a
+     clip region that started just past them), which meant a level's own
+     border blocks never actually showed up on screen despite being real
+     objects in the file. Now every block placed in the level is visible,
+     exactly as saved. */
   ctx2d.fillStyle = SKY_COLOR;
   ctx2d.fillRect(0,0,W,H);
   drawClouds();
